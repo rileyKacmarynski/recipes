@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "env": {
+    "browser": true,
+    "node": true,
+    "vitest": true
+  },
+  "plugins": ["react", "react-hooks"],
+  "ignorePatterns": ["dist", "node_modules", "playwright-report", "test-results"]
+}
