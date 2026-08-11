@@ -2,6 +2,9 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
     "types": ["vitest/globals", "@testing-library/jest-dom", "node"]
   },
   "include": ["src", "vite.config.ts", "playwright.config.ts"]
