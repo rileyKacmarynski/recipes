@@ -1,14 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const webPort = process.env.WEB_PORT ?? "5173";
+const baseURL = `http://127.0.0.1:${webPort}`;
+
 export default defineConfig({
   testDir: "./e2e",
   webServer: {
-    command: "pnpm dev",
-    url: "http://127.0.0.1:5173",
+    command: "pnpm -w dev",
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
   },
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL,
     trace: "on-first-retry",
   },
   projects: [

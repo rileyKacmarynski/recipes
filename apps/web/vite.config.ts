@@ -10,6 +10,9 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
+  server: {
+    port: Number(process.env.WEB_PORT ?? 5173),
+  },
   test: {
     environment: "jsdom",
     exclude: ["e2e/**", "node_modules/**", "dist/**"],

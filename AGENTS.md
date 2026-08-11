@@ -27,3 +27,14 @@ When implementing a feature:
 2. Reuse existing patterns.
 3. Avoid unnecessary dependencies.
 4. Ask before introducing new frameworks.
+
+## Worktrees
+
+Do not create Git worktrees unless the user explicitly asks for one.
+
+When working inside a Git worktree and running dev servers or E2E tests in parallel with another checkout, pass explicit ports inline instead of adding repo scripts or env files:
+
+```sh
+WEB_PORT=6174 API_PORT=3001 pnpm dev
+WEB_PORT=6174 API_PORT=3001 pnpm test:e2e
+```
