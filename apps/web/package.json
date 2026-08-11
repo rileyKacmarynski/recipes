@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
-    "@fontsource-variable/geist": "^5.3.0",
     "@recipes/shared": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-router": "latest",
