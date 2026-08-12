@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { Recipe } from "@recipes/shared";
 
 const starterRecipe: Recipe = {
@@ -6,8 +7,7 @@ const starterRecipe: Recipe = {
   title: "Starter Recipe",
 };
 
-export const app = new Hono();
-
-app.get("/health", (c) => c.json({ ok: true }));
-
-app.get("/", (c) => c.json({ name: "recipes-api", sampleRecipe: starterRecipe.title }));
+export const app = new Hono()
+  .use("*", cors())
+  .get("/health", (c) => c.json({ ok: true }))
+  .get("/recipes", (c) => c.json({ recipes: [starterRecipe] }));

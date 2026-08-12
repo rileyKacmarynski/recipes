@@ -3,10 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./rpc": {
+      "types": "./src/rpc.ts"
+    }
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --exclude dist/**",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

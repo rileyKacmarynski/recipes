@@ -1,24 +1,12 @@
-import { RouterProvider, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { QueryClient } from "@tanstack/react-query";
+import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { createAppRouter } from "./router";
 import "./styles.css";
 
-const rootRoute = createRootRoute();
-
-const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/",
-  component: App,
-});
-
-const router = createRouter({ routeTree: rootRoute.addChildren([indexRoute]) });
-
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: typeof router;
-  }
-}
+const queryClient = new QueryClient();
+const router = createAppRouter({ queryClient });
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

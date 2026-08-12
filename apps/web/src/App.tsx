@@ -1,12 +1,11 @@
 import type { Recipe } from "@recipes/shared";
 import { Button } from "@/components/ui/button";
 
-const sampleRecipe: Recipe = {
-  id: "starter",
-  title: "Starter Recipe",
+type AppProps = {
+  recipes: Recipe[];
 };
 
-export function App() {
+export function App({ recipes }: AppProps) {
   return (
     <main className="min-h-svh bg-[radial-gradient(circle_at_top_left,var(--color-muted),transparent_34rem)] px-6 py-10 text-foreground">
       <section className="mx-auto flex min-h-[calc(100svh-5rem)] w-full max-w-5xl items-center">
@@ -26,9 +25,11 @@ export function App() {
               View project setup
             </Button>
           </div>
-          <p className="mt-8 text-sm font-medium text-muted-foreground">
-            Shared type loaded: {sampleRecipe.title}
-          </p>
+          <ul className="mt-8 list-disc space-y-2 pl-5 text-sm font-medium text-muted-foreground">
+            {recipes.map((recipe) => (
+              <li key={recipe.id}>{recipe.title}</li>
+            ))}
+          </ul>
         </div>
       </section>
     </main>

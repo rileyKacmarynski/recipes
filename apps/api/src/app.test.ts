@@ -7,3 +7,12 @@ test("GET /health returns ok", async () => {
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toEqual({ ok: true });
 });
+
+test("GET /recipes returns recipes", async () => {
+  const response = await app.request("/recipes");
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toEqual({
+    recipes: [{ id: "starter", title: "Starter Recipe" }],
+  });
+});
