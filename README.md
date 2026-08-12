@@ -6,9 +6,9 @@ This repository is intentionally small and feature-light. Keep changes focused, 
 
 ## Stack
 
-- React SPA in `apps/web`
-- Hono API in `apps/api`
-- Shared TypeScript package in `packages/shared`
+- React SPA in `packages/web`
+- Hono API in `packages/api`
+- Core domain TypeScript package in `packages/core`
 - pnpm workspaces
 - TypeScript with `strict: true`
 - Oxlint and Oxfmt
@@ -18,11 +18,10 @@ This repository is intentionally small and feature-light. Keep changes focused, 
 ## Repository Structure
 
 ```text
-apps/
+packages/
   web/      React + Vite frontend
   api/      Hono API
-packages/
-  shared/   Shared TypeScript types and utilities
+  core/     Core domain types and utilities
 infra/      Reserved for future infrastructure docs/config
 doc/
   adr/      Architecture Decision Records
@@ -63,7 +62,7 @@ pnpm test:e2e -- -g "shows recipes page"
 - Frontend dev server runs through Vite.
 - API server listens on `http://localhost:3000`.
 - `GET /health` returns `{ "ok": true }`.
-- The shared package exports `Recipe` and is imported by both apps to verify workspace linking.
+- The core package exports `Recipe` and is imported by both apps to verify workspace linking.
 
 ## Current Scope
 

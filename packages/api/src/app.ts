@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import type { Recipe } from "@recipes/shared";
+import type { Recipe } from "@recipes/core";
 
 const starterRecipe: Recipe = {
   id: "starter",

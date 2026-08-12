@@ -1,5 +1,5 @@
 import type { AppType } from "@recipes/api/rpc";
-import type { Recipe } from "@recipes/shared";
+import type { Recipe } from "@recipes/core";
 import { hc } from "hono/client";
 
 export type Api = {

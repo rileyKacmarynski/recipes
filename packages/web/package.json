@@ -15,7 +15,7 @@
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@recipes/api": "workspace:*",
-    "@recipes/shared": "workspace:*",
+    "@recipes/core": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "latest",

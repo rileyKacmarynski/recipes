@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@hono/node-server": "latest",
-    "@recipes/shared": "workspace:*",
+    "@recipes/core": "workspace:*",
     "hono": "latest"
   },
   "devDependencies": {

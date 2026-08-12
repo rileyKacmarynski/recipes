@@ -1,4 +1,4 @@
-import type { Recipe } from "@recipes/shared";
+import type { Recipe } from "@recipes/core";
 import { Button } from "@/components/ui/button";
 
 type AppProps = {
