@@ -1,0 +1,7 @@
+id: b95d8d0b-96b6-4231-bba5-4375a4f4d5f0
+name: secrets
+type: local_encryption
+config:
+  auto_generate: true
+  base_dir: /Users/riley/Dev/recipes
+createdAt: '2026-08-19T00:52:55.608Z'
