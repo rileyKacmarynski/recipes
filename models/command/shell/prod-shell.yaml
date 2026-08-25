@@ -1,0 +1,8 @@
+type: command/shell
+typeVersion: 2026.02.09.1
+id: 2be6f414-62f2-4df7-aa78-c05f8f200bce
+name: prod-shell
+version: 1
+tags: {}
+globalArguments: {}
+methods: {}

@@ -9,6 +9,10 @@ packages/web/.tanstack/
 .worktrees/
 *.tfplan
 *-plan.txt
+infra/terraform/prod/prod-plan.json
+infra/terraform/prod/prod-outputs.json
+infra/terraform/prod/prod-outputs.env
+infra/terraform/prod/prod-report.txt
 
 # BEGIN swamp managed section - DO NOT EDIT
 

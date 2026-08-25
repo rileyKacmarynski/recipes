@@ -1,0 +1,114 @@
+id: a969fd03-e307-4396-a837-1890fbb8025b
+name: promote-prod
+tags: {}
+jobs:
+  - name: main
+    description: Guarded production Terraform plan/apply/verify runbook.
+    steps:
+      - name: preflight
+        description: Check required local tools, env vars, backend config, and AWS identity without printing secrets.
+        task:
+          type: model_method
+          modelIdOrName: prod-shell
+          methodName: execute
+          inputs:
+            run: bash scripts/prod-infra.sh preflight
+            workingDir: .
+            timeout: 120000
+        dependsOn: []
+        weight: 0
+        allowFailure: false
+      - name: plan
+        description: Initialize the S3 backend and create a saved production Terraform plan plus review text.
+        task:
+          type: model_method
+          modelIdOrName: prod-shell
+          methodName: execute
+          inputs:
+            run: bash scripts/prod-infra.sh plan
+            workingDir: .
+            timeout: 1200000
+        dependsOn:
+          - step: preflight
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: inspect-plan
+        description: Fail on destructive changes, legacy hostname drift, unproxied DNS, missing CAA, or API Gateway default endpoint drift.
+        task:
+          type: model_method
+          modelIdOrName: prod-shell
+          methodName: execute
+          inputs:
+            run: bash scripts/prod-infra.sh inspect-plan
+            workingDir: .
+            timeout: 120000
+        dependsOn:
+          - step: plan
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: approve-apply
+        description: Human gate before applying the saved production plan.
+        task:
+          type: manual_approval
+          prompt: Review infra/terraform/prod/prod-plan.txt and the inspect-plan output. Approve only if the saved plan is expected for production.
+        dependsOn:
+          - step: inspect-plan
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: apply
+        description: Apply the saved plan file produced by the plan step.
+        task:
+          type: model_method
+          modelIdOrName: prod-shell
+          methodName: execute
+          inputs:
+            run: bash scripts/prod-infra.sh apply
+            workingDir: .
+            timeout: 1800000
+        dependsOn:
+          - step: approve-apply
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: verify
+        description: Verify DNS, Cloudflare Access edge behavior, CloudFront, Lambda, and API Gateway state.
+        task:
+          type: model_method
+          modelIdOrName: prod-shell
+          methodName: execute
+          inputs:
+            run: bash scripts/prod-infra.sh verify
+            workingDir: .
+            timeout: 300000
+        dependsOn:
+          - step: apply
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+      - name: report
+        description: Emit a concise local report with Terraform outputs and artifact paths.
+        task:
+          type: model_method
+          modelIdOrName: prod-shell
+          methodName: execute
+          inputs:
+            run: bash scripts/prod-infra.sh report
+            workingDir: .
+            timeout: 120000
+        dependsOn:
+          - step: verify
+            condition:
+              type: succeeded
+        weight: 0
+        allowFailure: false
+    dependsOn: []
+    weight: 0
+version: 1
