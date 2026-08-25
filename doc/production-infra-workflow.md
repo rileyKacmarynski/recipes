@@ -1,12 +1,12 @@
 # Production Infra Workflow
 
-Use the `promote-prod` swamp workflow for guarded production Terraform operations.
+Use the `plan-prod` swamp workflow for production Terraform plan review.
 
 ```sh
-swamp workflow run promote-prod
+swamp workflow run plan-prod
 ```
 
-The workflow runs preflight checks, creates a saved Terraform plan, inspects the plan, pauses for manual approval, applies the saved plan, verifies production endpoints and AWS state, then writes a local report.
+The workflow runs preflight checks, creates a saved Terraform plan, inspects the plan for risky changes, then writes a local report. It does not apply infrastructure changes.
 
 Required local environment:
 
@@ -17,6 +17,8 @@ Required local environment:
 - `TF_VAR_aws_profile`, optional, defaults to `recipes-admin`
 - `TF_VAR_aws_region`, optional, defaults to `us-east-1`
 
+The workflow does not store AWS access keys. Production automation should inject secrets through the runner environment and use the standard AWS credential chain or GitHub OIDC.
+
 Local artifacts are intentionally ignored by git:
 
 - `infra/terraform/prod/prod.tfplan`
@@ -26,4 +28,4 @@ Local artifacts are intentionally ignored by git:
 - `infra/terraform/prod/prod-outputs.env`
 - `infra/terraform/prod/prod-report.txt`
 
-This workflow is for infrastructure plan/apply/verify operations. Do not use it for application artifact deployment; GitHub Actions should deploy built web/API artifacts once that pipeline exists.
+This workflow is for infrastructure plan review. Do not use it for application artifact deployment; GitHub Actions should deploy built web/API artifacts and eventually own approved production infrastructure applies.

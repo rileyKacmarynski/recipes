@@ -17,7 +17,7 @@ export TF_VAR_aws_profile="$AWS_PROFILE_NAME"
 export TF_VAR_aws_region="$AWS_REGION_NAME"
 
 usage() {
-  printf 'Usage: %s {preflight|plan|inspect-plan|apply|verify|report}\n' "$0" >&2
+  printf 'Usage: %s {preflight|plan|inspect-plan|report}\n' "$0" >&2
 }
 
 require_command() {
@@ -81,6 +81,10 @@ import { readFileSync } from "node:fs";
 
 const plan = JSON.parse(readFileSync("infra/terraform/prod/prod-plan.json", "utf8"));
 const changes = plan.resource_changes ?? [];
+const actionableChanges = changes.filter((change) => {
+  const actions = change.change?.actions ?? [];
+  return actions.some((action) => action !== "no-op" && action !== "read");
+});
 const plannedResources = [];
 function collectResources(module) {
   plannedResources.push(...(module?.resources ?? []));
@@ -90,16 +94,16 @@ function collectResources(module) {
 }
 collectResources(plan.planned_values?.root_module);
 
-const replacementOrDestroy = changes.filter((change) => {
+const replacementOrDestroy = actionableChanges.filter((change) => {
   const actions = change.change?.actions ?? [];
   return actions.includes("delete");
 });
-const cloudflareDns = changes.filter((change) => change.type === "cloudflare_record");
+const cloudflareDns = actionableChanges.filter((change) => change.type === "cloudflare_record");
 const unproxied = cloudflareDns.filter((change) => change.change?.after?.proxied === false);
-const endpointDrift = changes.filter((change) => {
+const endpointDrift = actionableChanges.filter((change) => {
   return change.type === "aws_apigatewayv2_api" && change.change?.after?.disable_execute_api_endpoint !== true;
 });
-const accessChanges = changes.filter((change) => change.type?.includes("access"));
+const accessChanges = actionableChanges.filter((change) => change.type?.includes("access"));
 const caaRecords = plannedResources.filter((resource) => {
   return resource.type === "cloudflare_record" && resource.values?.type === "CAA";
 });
@@ -122,6 +126,7 @@ if (caaRecords.length === 0) {
 }
 
 console.log(`resource_changes=${changes.length}`);
+console.log(`actionable_changes=${actionableChanges.length}`);
 console.log(`caa_records_in_plan=${caaRecords.length}`);
 
 if (findings.length > 0) {
@@ -139,52 +144,20 @@ NODE
   printf 'legacy_hostname_drift=absent\n'
 }
 
-apply_plan() {
-  if [ ! -f "$PLAN_FILE" ]; then
-    printf 'Saved plan file does not exist: %s\n' "$PLAN_FILE" >&2
-    exit 1
-  fi
-  terraform -chdir="$TF_DIR" apply -input=false "$PLAN_FILE"
-}
-
-verify() {
-  terraform -chdir="$TF_DIR" output -json >"$TF_DIR/prod-outputs.json"
-  node --input-type=module <<'NODE' >"$TF_DIR/prod-outputs.env"
-import { readFileSync } from "node:fs";
-
-const outputs = JSON.parse(readFileSync("infra/terraform/prod/prod-outputs.json", "utf8"));
-for (const [key, value] of Object.entries(outputs)) {
-  console.log(`${key}=${value.value}`);
-}
-NODE
-  set -a
-  source "$TF_DIR/prod-outputs.env"
-  set +a
-
-  dig +short "$WEB_HOSTNAME" >/dev/null
-  dig +short "$API_HOSTNAME" >/dev/null
-  curl -fsSI "https://$WEB_HOSTNAME" | grep -Ei 'server: cloudflare|location: .*/cdn-cgi/access/' >/dev/null
-  curl -fsSI "https://$API_HOSTNAME/health" | grep -Ei 'server: cloudflare|location: .*/cdn-cgi/access/' >/dev/null
-  aws cloudfront get-distribution --profile "$AWS_PROFILE_NAME" --id "$cloudfront_distribution_id" --query 'Distribution.Status' --output text | grep '^Deployed$' >/dev/null
-  aws lambda get-function --profile "$AWS_PROFILE_NAME" --region "$AWS_REGION_NAME" --function-name "$api_lambda_function_name" --query 'Configuration.State' --output text | grep '^Active$' >/dev/null
-  aws apigatewayv2 get-apis --profile "$AWS_PROFILE_NAME" --region "$AWS_REGION_NAME" --query 'Items[?Name==`recipes-prod-api`].DisableExecuteApiEndpoint | [0]' --output text | grep '^True$' >/dev/null
-
-  printf 'dns=ok\n'
-  printf 'cloudflare_access=ok\n'
-  printf 'cloudfront=deployed\n'
-  printf 'lambda=active\n'
-  printf 'api_gateway_default_endpoint=disabled\n'
-}
-
 report() {
   {
-    printf 'Production infrastructure workflow report\n'
+    printf 'Production infrastructure plan report\n'
     printf 'generated_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'terraform_dir=%s\n' "$TF_DIR"
     printf 'plan_file=%s\n' "$PLAN_FILE"
     printf 'plan_text=%s\n' "$PLAN_TEXT"
-    printf '\nTerraform outputs:\n'
-    terraform -chdir="$TF_DIR" output || true
+    printf 'plan_json=%s\n' "$PLAN_JSON"
+    printf '\nPlan summary:\n'
+    if [ -f "$PLAN_TEXT" ]; then
+      sed -n '1,40p' "$PLAN_TEXT"
+    else
+      printf 'Plan text has not been generated.\n'
+    fi
   } >"$REPORT_FILE"
   printf 'report_file=%s\n' "$REPORT_FILE"
 }
@@ -193,8 +166,6 @@ case "${1:-}" in
   preflight) preflight ;;
   plan) plan ;;
   inspect-plan) inspect_plan ;;
-  apply) apply_plan ;;
-  verify) verify ;;
   report) report ;;
   *) usage; exit 2 ;;
 esac
