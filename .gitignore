@@ -7,6 +7,8 @@ packages/web/.tanstack/
 *.tsbuildinfo
 .DS_Store
 .worktrees/
+*.tfplan
+*-plan.txt
 
 # BEGIN swamp managed section - DO NOT EDIT
 

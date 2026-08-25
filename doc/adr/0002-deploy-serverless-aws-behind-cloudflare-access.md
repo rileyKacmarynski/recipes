@@ -16,7 +16,8 @@ The deployment should stay small enough for one owner to operate, avoid introduc
 
 Deploy the production app on AWS serverless infrastructure behind Cloudflare DNS and Cloudflare Access.
 
-- Use `app.recipes.rkac.dev` for the SPA and `api.recipes.rkac.dev` for the API.
+- Use `recipes.rkac.dev` for the SPA and `recipes-api.rkac.dev` for the API.
+- Keep app hostnames one label under the existing `rkac.dev` Cloudflare zone so Cloudflare Universal SSL can cover them without subdomain-zone entitlement.
 - Use AWS region `us-east-1`.
 - Serve the SPA from private S3 through CloudFront with Origin Access Control.
 - Run the Hono API as a Lambda behind API Gateway HTTP API.

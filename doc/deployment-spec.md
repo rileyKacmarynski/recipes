@@ -6,10 +6,10 @@ Deploy the recipes app to production on AWS serverless infrastructure behind Clo
 
 Production URLs:
 
-- Web SPA: `https://app.recipes.rkac.dev`
-- API: `https://api.recipes.rkac.dev`
+- Web SPA: `https://recipes.rkac.dev`
+- API: `https://recipes-api.rkac.dev`
 
-The first implementation should support production only while keeping staging hostnames easy to add later: `app.staging.recipes.rkac.dev` and `api.staging.recipes.rkac.dev`.
+The first implementation should support production only while keeping staging hostnames easy to add later: `recipes-staging.rkac.dev` and `recipes-api-staging.rkac.dev`.
 
 ## Scope
 
@@ -40,7 +40,7 @@ Do not implement in this deployment chunk:
   - `infra/terraform/bootstrap/` for backend resources.
   - `infra/terraform/prod/` for production infrastructure.
   - `infra/terraform/modules/` only where a local module removes meaningful duplication.
-- Terraform assumes the existing Cloudflare zone for `rkac.dev` and requires `cloudflare_account_id` and `cloudflare_zone_id` inputs.
+- Terraform assumes the existing Cloudflare zone for `rkac.dev` and requires `cloudflare_account_id` and `cloudflare_zone_id` inputs. Hostnames stay one label under `rkac.dev` so Cloudflare Universal SSL covers them without a delegated subdomain zone.
 - Local Terraform applies use an AWS CLI profile variable.
 - Cloudflare provider authentication uses `CLOUDFLARE_API_TOKEN` from the environment.
 - AWS resource names use the `recipes-prod` prefix where possible.
@@ -54,14 +54,14 @@ Do not implement in this deployment chunk:
 - Build `packages/web` as a static SPA.
 - Serve the SPA from a private S3 bucket through CloudFront.
 - Use CloudFront Origin Access Control, not public S3 website hosting.
-- Configure the production web hostname `app.recipes.rkac.dev` through Cloudflare DNS.
+- Configure the production web hostname `recipes.rkac.dev` through Cloudflare DNS.
 - Protect the web hostname with Cloudflare Access.
 
 ### API
 
 - Run the Hono API on AWS Lambda behind API Gateway HTTP API.
 - Bundle the Lambda handler as a zip artifact using esbuild or an equivalent minimal bundling step.
-- Expose the API through `api.recipes.rkac.dev`.
+- Expose the API through `recipes-api.rkac.dev`.
 - Disable API Gateway's default `execute-api` endpoint for the first infrastructure implementation.
 - Keep explicit CORS handling for the separate web/API origins.
 - Protect the API hostname with Cloudflare Access at the edge.
