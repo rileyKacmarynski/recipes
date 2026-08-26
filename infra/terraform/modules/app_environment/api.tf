@@ -34,7 +34,7 @@ resource "aws_lambda_function" "api" {
   function_name    = "${var.name_prefix}-api"
   role             = aws_iam_role.api_lambda.arn
   handler          = "index.handler"
-  runtime          = "nodejs20.x"
+  runtime          = "nodejs24.x"
   filename         = data.archive_file.api_placeholder.output_path
   source_code_hash = data.archive_file.api_placeholder.output_base64sha256
 

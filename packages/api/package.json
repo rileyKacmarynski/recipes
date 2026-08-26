@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "build:lambda": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda/index.mjs",
+    "build:lambda": "esbuild src/lambda.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/index.mjs",
     "package:lambda": "pnpm build:lambda && cd dist/lambda && zip -qr ../api-lambda.zip index.mjs",
     "test": "vitest run --exclude dist/**",
     "test:unit": "vitest run --exclude dist/**",
