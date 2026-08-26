@@ -38,6 +38,12 @@ resource "aws_lambda_function" "api" {
   filename         = data.archive_file.api_placeholder.output_path
   source_code_hash = data.archive_file.api_placeholder.output_base64sha256
 
+  environment {
+    variables = {
+      WEB_ORIGIN = "https://${var.web_hostname}"
+    }
+  }
+
   depends_on = [
     aws_cloudwatch_log_group.api,
     aws_iam_role_policy_attachment.api_lambda_basic,

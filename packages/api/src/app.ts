@@ -7,12 +7,17 @@ const starterRecipe: Recipe = {
   title: "Starter Recipe",
 };
 
+const configuredWebOrigins = (process.env.WEB_ORIGIN ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export const app = new Hono()
   .use(
     "*",
     cors({
       origin: (origin) => {
-        if (origin === "https://recipes.rkac.dev" || origin.startsWith("http://localhost:")) {
+        if (configuredWebOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
           return origin;
         }
 
