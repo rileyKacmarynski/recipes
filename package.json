@@ -21,10 +21,5 @@
     "oxlint": "latest",
     "typescript": "latest"
   },
-  "packageManager": "pnpm@11.21.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild"
-    ]
-  }
+  "packageManager": "pnpm@11.21.0"
 }
