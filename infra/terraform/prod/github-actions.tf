@@ -78,7 +78,10 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   statement {
     sid = "InvalidateWebDistribution"
 
-    actions   = ["cloudfront:CreateInvalidation"]
+    actions = [
+      "cloudfront:CreateInvalidation",
+      "cloudfront:GetInvalidation",
+    ]
     resources = [module.app_environment.cloudfront_distribution_arn]
   }
 
