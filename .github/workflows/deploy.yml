@@ -83,30 +83,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Inspect OIDC token claims
-        run: |
-          token_response="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com")"
-          token="$(printf '%s' "$token_response" | jq -r '.value')"
-          TOKEN="$token" node --input-type=module -e '
-            const token = process.env.TOKEN ?? "";
-            const payload = token.split(".")[1];
-
-            if (!payload) {
-              console.error("Could not decode GitHub OIDC token payload.");
-              process.exit(1);
-            }
-
-            const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-            console.log(JSON.stringify({
-              aud: claims.aud,
-              sub: claims.sub,
-              repository: claims.repository,
-              ref: claims.ref,
-              environment: claims.environment,
-              job_workflow_ref: claims.job_workflow_ref,
-            }, null, 2));
-          '
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v5
         with:

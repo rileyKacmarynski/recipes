@@ -24,10 +24,10 @@ variable "access_allowed_email" {
   type        = string
 }
 
-variable "github_repository" {
-  description = "GitHub repository allowed to assume the app artifact deploy role."
+variable "github_oidc_subject" {
+  description = "GitHub OIDC subject allowed to assume the app artifact deploy role."
   type        = string
-  default     = "rileyKacmarynski/recipes"
+  default     = "repo:rileyKacmarynski@28719606/recipes@1324636296:environment:production"
 }
 
 variable "terraform_state_bucket" {
