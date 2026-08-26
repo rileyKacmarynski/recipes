@@ -65,3 +65,13 @@ terraform -chdir=infra/terraform/prod apply
 Terraform creates the production AWS resources, Cloudflare DNS records, Cloudflare Access applications, and Access policies. Do not manually create S3 buckets, CloudFront distributions, Lambda functions, API Gateway resources, or app DNS records for this deployment.
 
 Production uses one-label hostnames under `rkac.dev`, which keeps them within Cloudflare Universal SSL's wildcard coverage for the zone.
+
+## Application Artifact Deploy
+
+Production Terraform also creates the GitHub OIDC role used by `.github/workflows/deploy.yml` for app artifact deployment. After a local apply, store these Terraform/backend values as GitHub Actions variables:
+
+- `AWS_DEPLOY_ROLE_ARN`: `terraform -chdir=infra/terraform/prod output -raw github_actions_deploy_role_arn`
+- `TERRAFORM_STATE_BUCKET`: the bootstrap `terraform_state_bucket` output
+- `AWS_REGION`: `us-east-1`
+
+The GitHub deploy workflow reads Terraform outputs from remote state, deploys web/API artifacts, invalidates CloudFront, and runs smoke checks. It does not run `terraform apply`.

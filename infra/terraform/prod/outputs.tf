@@ -37,3 +37,8 @@ output "api_access_aud" {
   description = "Cloudflare Access AUD tag for the API app."
   value       = module.app_environment.api_access_aud
 }
+
+output "github_actions_deploy_role_arn" {
+  description = "IAM role ARN for GitHub Actions app artifact deployment."
+  value       = aws_iam_role.github_actions_deploy.arn
+}

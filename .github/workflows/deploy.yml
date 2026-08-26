@@ -1,0 +1,247 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  TF_BACKEND_BUCKET: ${{ vars.TERRAFORM_STATE_BUCKET }}
+  TF_DIR: infra/terraform/prod
+
+jobs:
+  checks:
+    name: Non-E2E Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Build
+        run: pnpm build
+
+  deploy:
+    name: Deploy App Artifacts
+    runs-on: ubuntu-latest
+    needs: checks
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: recipes-prod-deploy
+
+      - name: Read production Terraform outputs
+        id: terraform_outputs
+        run: |
+          if [ -z "$TF_BACKEND_BUCKET" ]; then
+            printf 'Missing GitHub variable: TERRAFORM_STATE_BUCKET\n' >&2
+            exit 1
+          fi
+
+          terraform -chdir="$TF_DIR" init \
+            -backend-config="bucket=$TF_BACKEND_BUCKET" \
+            -input=false
+          terraform -chdir="$TF_DIR" output -json >prod-outputs.json
+
+          web_bucket="$(jq -r '.web_bucket.value' prod-outputs.json)"
+          distribution_id="$(jq -r '.cloudfront_distribution_id.value' prod-outputs.json)"
+          lambda_function="$(jq -r '.api_lambda_function_name.value' prod-outputs.json)"
+          web_url="$(jq -r '.web_url.value' prod-outputs.json)"
+          api_url="$(jq -r '.api_url.value' prod-outputs.json)"
+
+          for value in "$web_bucket" "$distribution_id" "$lambda_function" "$web_url" "$api_url"; do
+            if [ -z "$value" ] || [ "$value" = "null" ]; then
+              printf 'A required Terraform output is missing.\n' >&2
+              exit 1
+            fi
+          done
+
+          printf 'web_bucket=%s\n' "$web_bucket" >>"$GITHUB_OUTPUT"
+          printf 'distribution_id=%s\n' "$distribution_id" >>"$GITHUB_OUTPUT"
+          printf 'lambda_function=%s\n' "$lambda_function" >>"$GITHUB_OUTPUT"
+          printf 'web_url=%s\n' "$web_url" >>"$GITHUB_OUTPUT"
+          printf 'api_url=%s\n' "$api_url" >>"$GITHUB_OUTPUT"
+
+      - name: Build web artifact
+        env:
+          VITE_API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
+        run: pnpm --filter @recipes/web build
+
+      - name: Build API Lambda artifact
+        run: pnpm --filter @recipes/api package:lambda
+
+      - name: Deploy web artifact to S3
+        env:
+          WEB_BUCKET: ${{ steps.terraform_outputs.outputs.web_bucket }}
+        run: |
+          aws s3 sync packages/web/dist "s3://$WEB_BUCKET" \
+            --delete \
+            --exclude index.html \
+            --cache-control 'public,max-age=31536000,immutable'
+          aws s3 cp packages/web/dist/index.html "s3://$WEB_BUCKET/index.html" \
+            --cache-control 'no-cache,no-store,must-revalidate' \
+            --content-type 'text/html'
+
+      - name: Deploy API Lambda artifact
+        env:
+          API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
+        run: |
+          aws lambda update-function-code \
+            --function-name "$API_LAMBDA_FUNCTION" \
+            --zip-file fileb://packages/api/dist/api-lambda.zip >/dev/null
+          aws lambda wait function-updated --function-name "$API_LAMBDA_FUNCTION"
+
+      - name: Invalidate CloudFront
+        env:
+          DISTRIBUTION_ID: ${{ steps.terraform_outputs.outputs.distribution_id }}
+        run: |
+          invalidation_id="$(aws cloudfront create-invalidation \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --paths '/*' \
+            --query 'Invalidation.Id' \
+            --output text)"
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "$DISTRIBUTION_ID" \
+            --id "$invalidation_id"
+
+      - name: Smoke check API Lambda
+        env:
+          API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
+        run: |
+          event_file="$(mktemp)"
+          response_file="$(mktemp)"
+
+          cat >"$event_file" <<'JSON'
+          {
+            "version": "2.0",
+            "routeKey": "$default",
+            "rawPath": "/health",
+            "rawQueryString": "",
+            "headers": {
+              "host": "recipes-api.rkac.dev"
+            },
+            "requestContext": {
+              "accountId": "000000000000",
+              "apiId": "smoke",
+              "authentication": null,
+              "authorizer": {},
+              "domainName": "recipes-api.rkac.dev",
+              "domainPrefix": "recipes-api",
+              "http": {
+                "method": "GET",
+                "path": "/health",
+                "protocol": "HTTP/1.1",
+                "sourceIp": "127.0.0.1",
+                "userAgent": "github-actions-smoke"
+              },
+              "requestId": "github-actions-smoke",
+              "routeKey": "$default",
+              "stage": "$default",
+              "time": "01/Jan/2026:00:00:00 +0000",
+              "timeEpoch": 1767225600000
+            },
+            "body": null,
+            "isBase64Encoded": false
+          }
+          JSON
+
+          aws lambda invoke \
+            --function-name "$API_LAMBDA_FUNCTION" \
+            --cli-binary-format raw-in-base64-out \
+            --payload "file://$event_file" \
+            "$response_file" >/dev/null
+
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+
+            const response = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const body = JSON.parse(response.body ?? "{}");
+
+            if (response.statusCode !== 200 || body.ok !== true) {
+              console.error(`Lambda smoke check failed: ${JSON.stringify(response)}`);
+              process.exit(1);
+            }
+
+            console.log("Lambda smoke check ok: /health returned ok");
+          ' "$response_file"
+
+      - name: Smoke check production URLs
+        env:
+          WEB_URL: ${{ steps.terraform_outputs.outputs.web_url }}
+          API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
+        run: |
+          check_url() {
+            label="$1"
+            url="$2"
+            status="$(curl -L -sS -o /dev/null -w '%{http_code}' "$url")"
+
+            if [ "$status" = "000" ] || [ "$status" -ge 500 ]; then
+              printf '%s smoke check failed: %s returned HTTP %s\n' "$label" "$url" "$status" >&2
+              exit 1
+            fi
+
+            printf '%s smoke check ok: %s returned HTTP %s\n' "$label" "$url" "$status"
+          }
+
+          check_url web "$WEB_URL"
+          check_url api "$API_URL/health"

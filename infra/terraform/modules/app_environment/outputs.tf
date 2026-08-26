@@ -13,14 +13,29 @@ output "web_bucket" {
   value       = aws_s3_bucket.web.bucket
 }
 
+output "web_bucket_arn" {
+  description = "S3 bucket ARN for web artifacts."
+  value       = aws_s3_bucket.web.arn
+}
+
 output "cloudfront_distribution_id" {
   description = "CloudFront distribution ID for web cache invalidations."
   value       = aws_cloudfront_distribution.web.id
 }
 
+output "cloudfront_distribution_arn" {
+  description = "CloudFront distribution ARN for web cache invalidations."
+  value       = aws_cloudfront_distribution.web.arn
+}
+
 output "api_lambda_function_name" {
   description = "Lambda function name for API artifact updates."
   value       = aws_lambda_function.api.function_name
+}
+
+output "api_lambda_function_arn" {
+  description = "Lambda function ARN for API artifact updates."
+  value       = aws_lambda_function.api.arn
 }
 
 output "api_gateway_domain_name" {

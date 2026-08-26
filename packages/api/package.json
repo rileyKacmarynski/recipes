@@ -14,6 +14,7 @@
     "build:lambda": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist/lambda/index.mjs",
     "package:lambda": "pnpm build:lambda && cd dist/lambda && zip -qr ../api-lambda.zip index.mjs",
     "test": "vitest run --exclude dist/**",
+    "test:unit": "vitest run --exclude dist/**",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
