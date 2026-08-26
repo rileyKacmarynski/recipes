@@ -6,7 +6,10 @@ export type Api = {
   loadRecipes(): Promise<Recipe[]>;
 };
 
-const client = hc<AppType>(import.meta.env.VITE_API_URL ?? "http://localhost:3000");
+const client = hc<AppType>(import.meta.env.VITE_API_URL ?? "http://localhost:3000", {
+  fetch: ((input, init) =>
+    fetch(input, { ...init, credentials: "include" })) satisfies typeof fetch,
+});
 
 export async function loadRecipes() {
   const response = await client.recipes.$get();

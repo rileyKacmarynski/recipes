@@ -8,6 +8,18 @@ const starterRecipe: Recipe = {
 };
 
 export const app = new Hono()
-  .use("*", cors())
+  .use(
+    "*",
+    cors({
+      origin: (origin) => {
+        if (origin === "https://recipes.rkac.dev" || origin.startsWith("http://localhost:")) {
+          return origin;
+        }
+
+        return null;
+      },
+      credentials: true,
+    }),
+  )
   .get("/health", (c) => c.json({ ok: true }))
   .get("/recipes", (c) => c.json({ recipes: [starterRecipe] }));

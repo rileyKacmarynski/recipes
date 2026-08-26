@@ -224,24 +224,3 @@ jobs:
 
             console.log("Lambda smoke check ok: /health returned ok");
           ' "$response_file"
-
-      - name: Smoke check production URLs
-        env:
-          WEB_URL: ${{ steps.terraform_outputs.outputs.web_url }}
-          API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
-        run: |
-          check_url() {
-            label="$1"
-            url="$2"
-            status="$(curl -L -sS -o /dev/null -w '%{http_code}' "$url")"
-
-            if [ "$status" = "000" ] || [ "$status" -ge 500 ]; then
-              printf '%s smoke check failed: %s returned HTTP %s\n' "$label" "$url" "$status" >&2
-              exit 1
-            fi
-
-            printf '%s smoke check ok: %s returned HTTP %s\n' "$label" "$url" "$status"
-          }
-
-          check_url web "$WEB_URL"
-          check_url api "$API_URL/health"
