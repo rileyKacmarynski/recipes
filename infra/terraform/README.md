@@ -68,7 +68,7 @@ Production uses one-label hostnames under `rkac.dev`, which keeps them within Cl
 
 ## Application Artifact Deploy
 
-Production Terraform also creates the GitHub OIDC role used by `.github/workflows/deploy.yml` for app artifact deployment. After a local apply, store these Terraform/backend values as GitHub Actions variables:
+Production Terraform also creates the GitHub OIDC role used by `.github/workflows/deploy.yml` for app artifact deployment. After a local apply, store these Terraform/backend values as GitHub Actions secrets:
 
 - `AWS_DEPLOY_ROLE_ARN`: `terraform -chdir=infra/terraform/prod output -raw github_actions_deploy_role_arn`
 - `TERRAFORM_STATE_BUCKET`: the bootstrap `terraform_state_bucket` output

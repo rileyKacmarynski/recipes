@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-  TF_BACKEND_BUCKET: ${{ vars.TERRAFORM_STATE_BUCKET }}
+  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  TF_BACKEND_BUCKET: ${{ secrets.TERRAFORM_STATE_BUCKET }}
   TF_DIR: infra/terraform/prod
 
 jobs:
@@ -87,14 +87,14 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           role-session-name: recipes-prod-deploy
 
       - name: Read production Terraform outputs
         id: terraform_outputs
         run: |
           if [ -z "$TF_BACKEND_BUCKET" ]; then
-            printf 'Missing GitHub variable: TERRAFORM_STATE_BUCKET\n' >&2
+            printf 'Missing GitHub secret: TERRAFORM_STATE_BUCKET\n' >&2
             exit 1
           fi
 
