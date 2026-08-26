@@ -28,6 +28,14 @@ Deploy the production app on AWS serverless infrastructure behind Cloudflare DNS
 - Deploy application artifacts through GitHub Actions using OIDC to assume a least-privilege AWS deploy role.
 - Keep Terraform apply credentials local initially.
 
+Deployment automation refinements:
+
+- The production GitHub Actions deploy role trusts the GitHub OIDC `environment:production` subject, not every `main` branch workflow run.
+- Deploy configuration values that should not be visible in a public repository, such as the AWS deploy role ARN and Terraform state bucket name, are stored as GitHub environment secrets.
+- Production and future non-production environments should use separate AWS deploy roles and separate Terraform state keys, even if they share the same backend bucket.
+- Application artifact deploys remain separate from infrastructure applies. GitHub Actions deploys built web/API artifacts; Terraform applies remain local-only until a later explicit automation decision.
+- Post-deploy smoke checks verify deployable artifacts through AWS-controlled paths, such as direct Lambda `/health` invocation, rather than treating Cloudflare Access-protected public URLs as unauthenticated smoke-test targets.
+
 ## Consequences
 
 This crosses the repository's previous no-infrastructure boundary, so deployment work should stay tightly scoped to the production serverless path.
