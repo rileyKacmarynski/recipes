@@ -28,11 +28,25 @@ function logAccessDecision(
   );
 }
 
-const truthy = new Set(["1", "true", "yes"]);
+function requestDiagnostics(c: Parameters<MiddlewareHandler>[0]) {
+  return {
+    method: c.req.method,
+    path: c.req.path,
+    host: c.req.header("host"),
+    origin: c.req.header("origin"),
+    referer: c.req.header("referer"),
+    userAgent: c.req.header("user-agent"),
+    cfRay: c.req.header("cf-ray"),
+    forwardedFor: c.req.header("x-forwarded-for"),
+    traceId: c.req.header("x-amzn-trace-id"),
+    hasAccessJwt: Boolean(c.req.header("cf-access-jwt-assertion")),
+    hasAccessUser: Boolean(c.req.header("cf-access-authenticated-user-email")),
+  };
+}
 
 export function cloudflareAccessConfigFromEnv(env: CloudflareAccessEnv): CloudflareAccessConfig {
   return {
-    required: truthy.has((env.CLOUDFLARE_ACCESS_JWT_REQUIRED ?? "").toLowerCase()),
+    required: env.CLOUDFLARE_ACCESS_JWT_REQUIRED !== "false",
     teamDomain: env.CLOUDFLARE_ACCESS_TEAM_DOMAIN,
     aud: env.CLOUDFLARE_ACCESS_AUD,
   };
@@ -63,8 +77,7 @@ export function cloudflareAccess(config: CloudflareAccessConfig): MiddlewareHand
   return async (c, next) => {
     if (c.req.method === "OPTIONS" || c.req.path === "/health") {
       logAccessDecision("info", "skipped", {
-        method: c.req.method,
-        path: c.req.path,
+        ...requestDiagnostics(c),
         reason: c.req.method === "OPTIONS" ? "preflight" : "health_check",
       });
       await next();
@@ -73,8 +86,7 @@ export function cloudflareAccess(config: CloudflareAccessConfig): MiddlewareHand
 
     if (!teamDomain || !aud || !jwks) {
       logAccessDecision("error", "misconfigured", {
-        method: c.req.method,
-        path: c.req.path,
+        ...requestDiagnostics(c),
         hasTeamDomain: Boolean(teamDomain),
         hasAud: Boolean(aud),
         hasJwks: Boolean(jwks),
@@ -85,27 +97,24 @@ export function cloudflareAccess(config: CloudflareAccessConfig): MiddlewareHand
     const token = c.req.header("cf-access-jwt-assertion");
     if (!token) {
       logAccessDecision("warn", "missing_token", {
-        method: c.req.method,
-        path: c.req.path,
-        origin: c.req.header("origin"),
-        referer: c.req.header("referer"),
+        ...requestDiagnostics(c),
       });
       return c.json({ error: "Missing Cloudflare Access JWT" }, 401);
     }
 
     try {
-      await jwtVerify(token, jwks, {
+      const result = await jwtVerify(token, jwks, {
         audience: aud,
         issuer: `https://${teamDomain}`,
       });
       logAccessDecision("info", "accepted", {
-        method: c.req.method,
-        path: c.req.path,
+        ...requestDiagnostics(c),
+        issuer: typeof result.payload.iss === "string" ? result.payload.iss : undefined,
+        audienceMatched: true,
       });
     } catch (error) {
       logAccessDecision("warn", "invalid_token", {
-        method: c.req.method,
-        path: c.req.path,
+        ...requestDiagnostics(c),
         error: error instanceof Error ? error.name : "UnknownError",
       });
       return c.json({ error: "Invalid Cloudflare Access JWT" }, 401);

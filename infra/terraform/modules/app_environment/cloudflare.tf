@@ -118,7 +118,6 @@ resource "cloudflare_zero_trust_access_application" "api" {
   session_duration           = "24h"
   http_only_cookie_attribute = true
   same_site_cookie_attribute = "none"
-  options_preflight_bypass   = true
   policies                   = [cloudflare_zero_trust_access_policy.api_owner.id]
 
   cors_headers {

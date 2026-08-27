@@ -36,7 +36,7 @@ export TF_VAR_access_allowed_email="you@example.com"
 export CLOUDFLARE_API_TOKEN="..."
 ```
 
-`CLOUDFLARE_ACCESS_JWT_REQUIRED` is a production Lambda runtime setting managed by Terraform. Do not export it for normal local development or local Playwright runs unless you are deliberately testing Access JWT enforcement.
+API-side Cloudflare Access JWT verification is on by default. `CLOUDFLARE_ACCESS_JWT_REQUIRED=false` is reserved for tests; do not use it for normal local development.
 
 ## Bootstrap State Backend
 

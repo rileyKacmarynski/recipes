@@ -28,7 +28,9 @@ test("GET /health returns ok", async () => {
 });
 
 test("GET /recipes returns recipes", async () => {
-  const response = await app.request("/recipes");
+  const testApp = createApp({ access: { required: false } });
+
+  const response = await testApp.request("/recipes");
 
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toEqual({
@@ -42,6 +44,35 @@ test("GET /recipes allows requests when Cloudflare Access JWT verification is di
   const response = await testApp.request("/recipes");
 
   expect(response.status).toBe(200);
+});
+
+test("GET /recipes requires Cloudflare Access configuration by default", async () => {
+  const testApp = createApp({ env: {} });
+
+  const response = await testApp.request("/recipes");
+
+  expect(response.status).toBe(500);
+  await expect(response.json()).resolves.toEqual({
+    error: "Cloudflare Access JWT verification is not configured",
+  });
+});
+
+test("GET /recipes reproduces the initial API fetch failure before the API Access JWT is available", async () => {
+  const { jwks } = await createAccessToken();
+  const testApp = createApp({
+    access: { required: true, teamDomain: "team.cloudflareaccess.com", aud: "expected-aud", jwks },
+    env: { WEB_ORIGIN: "https://recipes.rkac.dev" },
+  });
+
+  const response = await testApp.request("/recipes", {
+    headers: {
+      origin: "https://recipes.rkac.dev",
+      referer: "https://recipes.rkac.dev/",
+    },
+  });
+
+  expect(response.status).toBe(401);
+  await expect(response.json()).resolves.toEqual({ error: "Missing Cloudflare Access JWT" });
 });
 
 test("GET /recipes rejects missing Cloudflare Access JWTs when verification is required", async () => {

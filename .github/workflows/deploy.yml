@@ -157,6 +157,45 @@ jobs:
           printf 'web_url=%s\n' "$web_url" >>"$GITHUB_OUTPUT"
           printf 'api_url=%s\n' "$api_url" >>"$GITHUB_OUTPUT"
 
+      - name: Verify API Lambda Access configuration
+        env:
+          API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
+        run: |
+          config_file="$(mktemp)"
+          aws lambda get-function-configuration \
+            --function-name "$API_LAMBDA_FUNCTION" \
+            >"$config_file"
+
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+
+            const config = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const vars = config.Environment?.Variables ?? {};
+            const required = [
+              "CLOUDFLARE_ACCESS_AUD",
+              "CLOUDFLARE_ACCESS_JWT_REQUIRED",
+              "CLOUDFLARE_ACCESS_TEAM_DOMAIN",
+              "WEB_ORIGIN",
+            ];
+            const missing = required.filter((key) => !vars[key]);
+
+            console.log(JSON.stringify({
+              event: "api_lambda_access_env_check",
+              functionName: config.FunctionName,
+              runtime: config.Runtime,
+              lastModified: config.LastModified,
+              hasAccessAud: Boolean(vars.CLOUDFLARE_ACCESS_AUD),
+              accessJwtRequired: vars.CLOUDFLARE_ACCESS_JWT_REQUIRED,
+              hasAccessTeamDomain: Boolean(vars.CLOUDFLARE_ACCESS_TEAM_DOMAIN),
+              hasWebOrigin: Boolean(vars.WEB_ORIGIN),
+            }));
+
+            if (missing.length > 0) {
+              console.error(`Missing API Lambda Access env vars: ${missing.join(", ")}`);
+              process.exit(1);
+            }
+          ' "$config_file"
+
       - name: Build web artifact
         env:
           VITE_API_URL: ${{ steps.terraform_outputs.outputs.api_url }}

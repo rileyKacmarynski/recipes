@@ -6,6 +6,7 @@ test-results
 packages/web/.tanstack/
 *.tsbuildinfo
 .DS_Store
+.env.local
 .worktrees/
 *.tfplan
 *-plan.txt
