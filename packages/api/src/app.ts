@@ -20,6 +20,12 @@ export function createApp(options: AppOptions = {}) {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
+    console.log({
+      webOrigin: process.env.WEB_ORIGIN,
+      configuredWebOrigins,
+      webOriginJson: JSON.stringify(process.env.WEB_ORIGIN),
+    })
+
   return new Hono()
     .use(
       "*",
