@@ -87,3 +87,10 @@ Use the default triage label vocabulary. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 Use a single root domain context and repo ADRs in `doc/adr`. See `docs/agents/domain.md`.
+
+### Preference skills
+
+- Use `.agents/skills/architecture-preferences/SKILL.md` when designing or implementing application/domain code; it captures the repo preference for DDD vocabulary, Zod schemas at boundaries, and schema-first functional-core implementation.
+- Use `.agents/skills/frontend-ui-preferences/SKILL.md` when designing or implementing UI; it captures the repo preference for simple, clean, intentional interfaces.
+- Use `.agents/skills/accessibility-quality/SKILL.md` when creating or reviewing frontend interaction, semantics, forms, focus, keyboard behavior, or visual states.
+- Use `.agents/skills/testing-preferences/SKILL.md` when adding or reviewing tests; it captures the repo preference for broad meaningful units, behavior seams, Playwright as system/product confidence, and Vitest as fast regression confidence.
