@@ -3,12 +3,6 @@ resource "aws_cloudwatch_log_group" "api" {
   retention_in_days = 14
 }
 
-data "archive_file" "api_placeholder" {
-  type        = "zip"
-  source_file = "${path.module}/lambda-placeholder/index.mjs"
-  output_path = "${path.module}/lambda-placeholder.zip"
-}
-
 data "aws_iam_policy_document" "api_lambda_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -35,8 +29,8 @@ resource "aws_lambda_function" "api" {
   role             = aws_iam_role.api_lambda.arn
   handler          = "index.handler"
   runtime          = "nodejs24.x"
-  filename         = data.archive_file.api_placeholder.output_path
-  source_code_hash = data.archive_file.api_placeholder.output_base64sha256
+  filename         = var.api_lambda_zip_path
+  source_code_hash = var.api_lambda_source_code_hash
 
   environment {
     variables = {
@@ -48,6 +42,7 @@ resource "aws_lambda_function" "api" {
     aws_cloudwatch_log_group.api,
     aws_iam_role_policy_attachment.api_lambda_basic,
   ]
+
 }
 
 resource "aws_apigatewayv2_api" "api" {

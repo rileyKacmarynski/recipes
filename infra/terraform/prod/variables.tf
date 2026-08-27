@@ -1,6 +1,7 @@
 variable "aws_profile" {
-  description = "AWS CLI profile used for local Terraform applies."
+  description = "AWS CLI profile used for local Terraform applies. Leave null when credentials come from the environment, such as in GitHub Actions."
   type        = string
+  default     = null
 }
 
 variable "aws_region" {
@@ -34,4 +35,14 @@ variable "terraform_state_bucket" {
   description = "S3 bucket that stores production Terraform state for deploy-time output reads."
   type        = string
   default     = "recipes-terraform-state-699281550169"
+}
+
+variable "api_lambda_zip_path" {
+  description = "Path to the deployable API Lambda zip artifact."
+  type        = string
+}
+
+variable "api_lambda_source_code_hash" {
+  description = "Base64-encoded SHA256 hash of the deployable API Lambda zip artifact."
+  type        = string
 }

@@ -56,9 +56,12 @@ terraform -chdir=infra/terraform/prod init \
   -backend-config="profile=recipes-admin"
 ```
 
-Then apply:
+Then package the API Lambda and apply once locally after bootstrap, and again any time the GitHub deploy role permissions themselves need to change:
 
 ```sh
+pnpm --filter @recipes/api package:lambda
+export TF_VAR_api_lambda_zip_path="$PWD/packages/api/dist/api-lambda.zip"
+export TF_VAR_api_lambda_source_code_hash="$(openssl dgst -sha256 -binary "$TF_VAR_api_lambda_zip_path" | openssl base64 -A)"
 terraform -chdir=infra/terraform/prod apply
 ```
 
@@ -66,12 +69,18 @@ Terraform creates the production AWS resources, Cloudflare DNS records, Cloudfla
 
 Production uses one-label hostnames under `rkac.dev`, which keeps them within Cloudflare Universal SSL's wildcard coverage for the zone.
 
-## Application Artifact Deploy
+## GitHub Production Deploy
 
-Production Terraform also creates the GitHub OIDC role used by `.github/workflows/deploy.yml` for app artifact deployment. After a local apply, store these Terraform/backend values as GitHub Actions secrets:
+Production Terraform creates the GitHub OIDC role used by `.github/workflows/deploy.yml` for production infrastructure and app artifact deployment. After a local apply, store these Terraform/backend values as GitHub Actions production environment secrets:
 
 - `AWS_DEPLOY_ROLE_ARN`: `terraform -chdir=infra/terraform/prod output -raw github_actions_deploy_role_arn`
 - `TERRAFORM_STATE_BUCKET`: the bootstrap `terraform_state_bucket` output
 - `AWS_REGION`: `us-east-1`
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID for Zero Trust resources
+- `CLOUDFLARE_ZONE_ID`: Cloudflare zone ID for `rkac.dev`
+- `ACCESS_ALLOWED_EMAIL`: email address allowed by the initial Access policy
+- `CLOUDFLARE_API_TOKEN`: Cloudflare API token with Access and DNS edit permissions
 
-The GitHub deploy workflow reads Terraform outputs from remote state, deploys web/API artifacts, invalidates CloudFront, and runs smoke checks. It does not run `terraform apply`.
+The GitHub deploy workflow builds the API Lambda zip, applies production Terraform with that artifact, reads Terraform outputs from remote state, deploys web artifacts, invalidates CloudFront, and runs smoke checks.
+
+Because the deploy role is itself managed by Terraform, permission changes to that role still require a local production apply before GitHub Actions can use the new permissions.

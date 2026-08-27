@@ -45,7 +45,7 @@ Do not implement in this deployment chunk:
 - Cloudflare provider authentication uses `CLOUDFLARE_API_TOKEN` from the environment.
 - AWS resource names use the `recipes-prod` prefix where possible.
 - AWS resources use standard tags: `Project=recipes`, `Environment=prod`, `ManagedBy=terraform`.
-- Initial deploy flow is manual `terraform apply`; application artifacts deploy on push to `main` after checks pass.
+- Initial deploy flow builds the API Lambda artifact, applies production Terraform in GitHub Actions, then deploys web artifacts on push to `main` after checks pass.
 
 ## Infrastructure Requirements
 
@@ -87,12 +87,13 @@ Create separate workflows:
 
 - Run on push to `main` and `workflow_dispatch`.
 - Run only after non-E2E checks pass in that workflow.
-- Use GitHub OIDC to assume a least-privilege AWS deploy role.
+- Use GitHub OIDC to assume a production deploy role gated by the GitHub `production` environment.
+- Build the API Lambda zip before applying Terraform so Terraform creates or updates the Lambda with the real deployable artifact.
+- Apply production Terraform before reading outputs and deploying web artifacts.
 - Deploy web artifacts by syncing `packages/web/dist` to the production S3 bucket and invalidating CloudFront.
-- Deploy API artifacts by building a Lambda zip and updating Lambda function code.
-- Avoid granting GitHub Actions Terraform apply permissions in the first implementation.
+- Deploy API artifacts through the Terraform-managed Lambda function code update.
 
-Terraform credentials stay local at first. GitHub Actions receives only application artifact deploy permissions.
+The Terraform backend bootstrap remains local. After bootstrap, GitHub Actions applies production Terraform and deploys application artifacts.
 
 ## Follow-Up Implementation Tickets
 
@@ -133,7 +134,7 @@ Acceptance criteria:
 - Deploy uses GitHub OIDC to assume a least-privilege AWS role.
 - Web deploy syncs `packages/web/dist` to S3 and invalidates CloudFront.
 - API deploy builds the Lambda artifact and updates function code.
-- Terraform apply remains local-only.
+- Deploy builds the API Lambda artifact, applies production Terraform, then deploys web artifacts.
 
 ### 4. Deployment Operator Documentation
 

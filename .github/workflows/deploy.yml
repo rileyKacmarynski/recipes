@@ -55,10 +55,16 @@ jobs:
         run: pnpm build
 
   deploy:
-    name: Deploy App Artifacts
+    name: Deploy Infrastructure And App Artifacts
     runs-on: ubuntu-latest
     needs: checks
     environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      TF_VAR_access_allowed_email: ${{ secrets.ACCESS_ALLOWED_EMAIL }}
+      TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      TF_VAR_terraform_state_bucket: ${{ secrets.TERRAFORM_STATE_BUCKET }}
 
     steps:
       - name: Checkout
@@ -90,17 +96,45 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           role-session-name: recipes-prod-deploy
 
-      - name: Read production Terraform outputs
-        id: terraform_outputs
+      - name: Build API Lambda artifact
+        run: pnpm --filter @recipes/api package:lambda
+
+      - name: Prepare Terraform artifact inputs
+        run: |
+          lambda_zip="$GITHUB_WORKSPACE/packages/api/dist/api-lambda.zip"
+          if [ ! -f "$lambda_zip" ]; then
+            printf 'Missing API Lambda artifact: %s\n' "$lambda_zip" >&2
+            exit 1
+          fi
+
+          printf 'TF_VAR_api_lambda_zip_path=%s\n' "$lambda_zip" >>"$GITHUB_ENV"
+          printf 'TF_VAR_api_lambda_source_code_hash=%s\n' "$(openssl dgst -sha256 -binary "$lambda_zip" | openssl base64 -A)" >>"$GITHUB_ENV"
+
+      - name: Apply production Terraform
         run: |
           if [ -z "$TF_BACKEND_BUCKET" ]; then
             printf 'Missing GitHub secret: TERRAFORM_STATE_BUCKET\n' >&2
             exit 1
           fi
 
+          for name in CLOUDFLARE_API_TOKEN TF_VAR_access_allowed_email TF_VAR_cloudflare_account_id TF_VAR_cloudflare_zone_id TF_VAR_terraform_state_bucket TF_VAR_api_lambda_zip_path TF_VAR_api_lambda_source_code_hash; do
+            if [ -z "${!name}" ]; then
+              printf 'Missing GitHub production secret for %s\n' "$name" >&2
+              exit 1
+            fi
+          done
+
           terraform -chdir="$TF_DIR" init \
             -backend-config="bucket=$TF_BACKEND_BUCKET" \
             -input=false
+
+          terraform -chdir="$TF_DIR" apply \
+            -auto-approve \
+            -input=false
+
+      - name: Read production Terraform outputs
+        id: terraform_outputs
+        run: |
           terraform -chdir="$TF_DIR" output -json >prod-outputs.json
 
           web_bucket="$(jq -r '.web_bucket.value' prod-outputs.json)"
@@ -127,9 +161,6 @@ jobs:
           VITE_API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
         run: pnpm --filter @recipes/web build
 
-      - name: Build API Lambda artifact
-        run: pnpm --filter @recipes/api package:lambda
-
       - name: Deploy web artifact to S3
         env:
           WEB_BUCKET: ${{ steps.terraform_outputs.outputs.web_bucket }}
@@ -141,15 +172,6 @@ jobs:
           aws s3 cp packages/web/dist/index.html "s3://$WEB_BUCKET/index.html" \
             --cache-control 'no-cache,no-store,must-revalidate' \
             --content-type 'text/html'
-
-      - name: Deploy API Lambda artifact
-        env:
-          API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
-        run: |
-          aws lambda update-function-code \
-            --function-name "$API_LAMBDA_FUNCTION" \
-            --zip-file fileb://packages/api/dist/api-lambda.zip >/dev/null
-          aws lambda wait function-updated --function-name "$API_LAMBDA_FUNCTION"
 
       - name: Invalidate CloudFront
         env:

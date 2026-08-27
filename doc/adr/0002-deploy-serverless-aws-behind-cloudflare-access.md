@@ -25,15 +25,15 @@ Deploy the production app on AWS serverless infrastructure behind Cloudflare DNS
 - Manage AWS and Cloudflare resources with Terraform under `infra/terraform/`.
 - Use an S3 Terraform backend with native S3 lockfile locking.
 - Use Cloudflare Access with One-Time PIN email login for the owner's email as the initial policy.
-- Deploy application artifacts through GitHub Actions using OIDC to assume a least-privilege AWS deploy role.
-- Keep Terraform apply credentials local initially.
+- Deploy production infrastructure and application artifacts through GitHub Actions using OIDC to assume a production deploy role gated by the GitHub `production` environment.
+- Keep Terraform backend bootstrap local.
 
 Deployment automation refinements:
 
 - The production GitHub Actions deploy role trusts the GitHub OIDC `environment:production` subject, not every `main` branch workflow run.
-- Deploy configuration values that should not be visible in a public repository, such as the AWS deploy role ARN and Terraform state bucket name, are stored as GitHub environment secrets.
+- Deploy configuration values that should not be visible in a public repository, such as the AWS deploy role ARN, Terraform state bucket name, Cloudflare account/zone IDs, allowed Access email, and Cloudflare API token, are stored as GitHub environment secrets.
 - Production and future non-production environments should use separate AWS deploy roles and separate Terraform state keys, even if they share the same backend bucket.
-- Application artifact deploys remain separate from infrastructure applies. GitHub Actions deploys built web/API artifacts; Terraform applies remain local-only until a later explicit automation decision.
+- The deployment workflow builds the API Lambda artifact before applying production Terraform, so Terraform creates or updates the Lambda with the real deployable code while also reconciling infrastructure drift before web artifact rollout.
 - Post-deploy smoke checks verify deployable artifacts through AWS-controlled paths, such as direct Lambda `/health` invocation, rather than treating Cloudflare Access-protected public URLs as unauthenticated smoke-test targets.
 
 ## Consequences
@@ -44,4 +44,4 @@ Cloudflare Access protects both hostnames at the edge, but API-side Cloudflare A
 
 Terraform now becomes part of the repo's maintained surface. Backend bootstrap, production infrastructure, and operator documentation must be kept understandable for a small single-owner project.
 
-GitHub Actions initially receives application artifact deployment permissions only. Terraform automation, database infrastructure, mature release governance, and PR-required deployment policy remain out of scope until there is a concrete need.
+GitHub Actions now receives production infrastructure deployment permissions. Database infrastructure, mature release governance, and PR-required deployment policy remain out of scope until there is a concrete need.
