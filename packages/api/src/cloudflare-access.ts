@@ -14,6 +14,20 @@ type CloudflareAccessEnv = {
   CLOUDFLARE_ACCESS_AUD?: string;
 };
 
+function logAccessDecision(
+  level: "info" | "warn" | "error",
+  decision: string,
+  details: Record<string, string | boolean | undefined>,
+) {
+  console[level](
+    JSON.stringify({
+      event: "cloudflare_access_jwt",
+      decision,
+      ...details,
+    }),
+  );
+}
+
 const truthy = new Set(["1", "true", "yes"]);
 
 export function cloudflareAccessConfigFromEnv(env: CloudflareAccessEnv): CloudflareAccessConfig {
@@ -48,16 +62,34 @@ export function cloudflareAccess(config: CloudflareAccessConfig): MiddlewareHand
 
   return async (c, next) => {
     if (c.req.method === "OPTIONS" || c.req.path === "/health") {
+      logAccessDecision("info", "skipped", {
+        method: c.req.method,
+        path: c.req.path,
+        reason: c.req.method === "OPTIONS" ? "preflight" : "health_check",
+      });
       await next();
       return;
     }
 
     if (!teamDomain || !aud || !jwks) {
+      logAccessDecision("error", "misconfigured", {
+        method: c.req.method,
+        path: c.req.path,
+        hasTeamDomain: Boolean(teamDomain),
+        hasAud: Boolean(aud),
+        hasJwks: Boolean(jwks),
+      });
       return c.json({ error: "Cloudflare Access JWT verification is not configured" }, 500);
     }
 
     const token = c.req.header("cf-access-jwt-assertion");
     if (!token) {
+      logAccessDecision("warn", "missing_token", {
+        method: c.req.method,
+        path: c.req.path,
+        origin: c.req.header("origin"),
+        referer: c.req.header("referer"),
+      });
       return c.json({ error: "Missing Cloudflare Access JWT" }, 401);
     }
 
@@ -66,7 +98,16 @@ export function cloudflareAccess(config: CloudflareAccessConfig): MiddlewareHand
         audience: aud,
         issuer: `https://${teamDomain}`,
       });
-    } catch {
+      logAccessDecision("info", "accepted", {
+        method: c.req.method,
+        path: c.req.path,
+      });
+    } catch (error) {
+      logAccessDecision("warn", "invalid_token", {
+        method: c.req.method,
+        path: c.req.path,
+        error: error instanceof Error ? error.name : "UnknownError",
+      });
       return c.json({ error: "Invalid Cloudflare Access JWT" }, 401);
     }
 

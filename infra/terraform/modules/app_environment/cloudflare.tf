@@ -120,4 +120,23 @@ resource "cloudflare_zero_trust_access_application" "api" {
   same_site_cookie_attribute = "none"
   options_preflight_bypass   = true
   policies                   = [cloudflare_zero_trust_access_policy.api_owner.id]
+
+  cors_headers {
+    allow_credentials = true
+    allowed_headers = [
+      "authorization",
+      "cf-access-jwt-assertion",
+      "content-type",
+    ]
+    allowed_methods = [
+      "DELETE",
+      "GET",
+      "OPTIONS",
+      "PATCH",
+      "POST",
+      "PUT",
+    ]
+    allowed_origins = ["https://${var.web_hostname}"]
+    max_age         = 3600
+  }
 }
