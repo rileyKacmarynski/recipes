@@ -63,6 +63,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       TF_VAR_access_allowed_email: ${{ secrets.ACCESS_ALLOWED_EMAIL }}
       TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TF_VAR_cloudflare_access_team_domain: ${{ secrets.CLOUDFLARE_ACCESS_TEAM_DOMAIN }}
       TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
       TF_VAR_terraform_state_bucket: ${{ secrets.TERRAFORM_STATE_BUCKET }}
 
@@ -117,7 +118,7 @@ jobs:
             exit 1
           fi
 
-          for name in CLOUDFLARE_API_TOKEN TF_VAR_access_allowed_email TF_VAR_cloudflare_account_id TF_VAR_cloudflare_zone_id TF_VAR_terraform_state_bucket TF_VAR_api_lambda_zip_path TF_VAR_api_lambda_source_code_hash; do
+          for name in CLOUDFLARE_API_TOKEN TF_VAR_access_allowed_email TF_VAR_cloudflare_account_id TF_VAR_cloudflare_access_team_domain TF_VAR_cloudflare_zone_id TF_VAR_terraform_state_bucket TF_VAR_api_lambda_zip_path TF_VAR_api_lambda_source_code_hash; do
             if [ -z "${!name}" ]; then
               printf 'Missing GitHub production secret for %s\n' "$name" >&2
               exit 1

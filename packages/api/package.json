@@ -18,9 +18,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@hono/node-server": "latest",
+    "@hono/node-server": "2.1.0",
     "@recipes/core": "workspace:*",
-    "hono": "latest"
+    "hono": "4.13.1",
+    "jose": "6.2.8"
   },
   "devDependencies": {
     "@types/node": "latest",

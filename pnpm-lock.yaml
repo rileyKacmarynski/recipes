@@ -24,14 +24,17 @@ importers:
   packages/api:
     dependencies:
       '@hono/node-server':
-        specifier: latest
+        specifier: 2.1.0
         version: 2.1.0(hono@4.13.1)
       '@recipes/core':
         specifier: workspace:*
         version: link:../core
       hono:
-        specifier: latest
+        specifier: 4.13.1
         version: 4.13.1
+      jose:
+        specifier: 6.2.8
+        version: 6.2.8
     devDependencies:
       '@types/node':
         specifier: latest
@@ -88,7 +91,7 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       hono:
-        specifier: ^4.13.1
+        specifier: 4.13.1
         version: 4.13.1
       lucide-react:
         specifier: ^1.31.0

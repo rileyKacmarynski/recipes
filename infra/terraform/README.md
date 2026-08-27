@@ -30,10 +30,13 @@ Required local environment:
 ```sh
 export TF_VAR_aws_profile="recipes-admin"
 export TF_VAR_cloudflare_account_id="$CLOUDFLARE_ACCOUNT_ID"
+export TF_VAR_cloudflare_access_team_domain="your-team.cloudflareaccess.com"
 export TF_VAR_cloudflare_zone_id="$CLOUDFLARE_ZONE_ID"
 export TF_VAR_access_allowed_email="you@example.com"
 export CLOUDFLARE_API_TOKEN="..."
 ```
+
+`CLOUDFLARE_ACCESS_JWT_REQUIRED` is a production Lambda runtime setting managed by Terraform. Do not export it for normal local development or local Playwright runs unless you are deliberately testing Access JWT enforcement.
 
 ## Bootstrap State Backend
 
@@ -77,6 +80,7 @@ Production Terraform creates the GitHub OIDC role used by `.github/workflows/dep
 - `TERRAFORM_STATE_BUCKET`: the bootstrap `terraform_state_bucket` output
 - `AWS_REGION`: `us-east-1`
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID for Zero Trust resources
+- `CLOUDFLARE_ACCESS_TEAM_DOMAIN`: Cloudflare Zero Trust team domain, for example `your-team.cloudflareaccess.com`
 - `CLOUDFLARE_ZONE_ID`: Cloudflare zone ID for `rkac.dev`
 - `ACCESS_ALLOWED_EMAIL`: email address allowed by the initial Access policy
 - `CLOUDFLARE_API_TOKEN`: Cloudflare API token with Access and DNS edit permissions
@@ -84,3 +88,5 @@ Production Terraform creates the GitHub OIDC role used by `.github/workflows/dep
 The GitHub deploy workflow builds the API Lambda zip, applies production Terraform with that artifact, reads Terraform outputs from remote state, deploys web artifacts, invalidates CloudFront, and runs smoke checks.
 
 Because the deploy role is itself managed by Terraform, permission changes to that role still require a local production apply before GitHub Actions can use the new permissions.
+
+To redeploy or roll back application code, rerun `.github/workflows/deploy.yml` on the desired commit. The workflow rebuilds the API Lambda zip from that commit, applies Terraform with that artifact, rebuilds the web app with the production API URL, uploads web assets, invalidates CloudFront, and runs the Lambda smoke check.

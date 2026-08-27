@@ -22,6 +22,7 @@ module "app_environment" {
   cloudflare_zone_id    = var.cloudflare_zone_id
   access_allowed_email  = var.access_allowed_email
 
-  api_lambda_zip_path         = var.api_lambda_zip_path
-  api_lambda_source_code_hash = var.api_lambda_source_code_hash
+  api_lambda_zip_path           = var.api_lambda_zip_path
+  api_lambda_source_code_hash   = var.api_lambda_source_code_hash
+  cloudflare_access_team_domain = var.cloudflare_access_team_domain
 }

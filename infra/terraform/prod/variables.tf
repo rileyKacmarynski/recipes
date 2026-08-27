@@ -46,3 +46,8 @@ variable "api_lambda_source_code_hash" {
   description = "Base64-encoded SHA256 hash of the deployable API Lambda zip artifact."
   type        = string
 }
+
+variable "cloudflare_access_team_domain" {
+  description = "Cloudflare Zero Trust team domain used as the Access JWT issuer, for example team.cloudflareaccess.com."
+  type        = string
+}
