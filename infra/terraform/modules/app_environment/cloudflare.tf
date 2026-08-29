@@ -101,6 +101,11 @@ resource "cloudflare_zero_trust_access_application" "web" {
 
   destinations {
     type = "public"
+    uri  = var.web_hostname
+  }
+
+  destinations {
+    type = "public"
     uri  = var.api_hostname
   }
 
