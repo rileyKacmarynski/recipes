@@ -36,7 +36,7 @@ export TF_VAR_access_allowed_email="you@example.com"
 export CLOUDFLARE_API_TOKEN="..."
 ```
 
-API-side Cloudflare Access JWT verification is on by default. `CLOUDFLARE_ACCESS_JWT_REQUIRED=false` is reserved for tests; do not use it for normal local development.
+Production API requests validate Cloudflare Access JWTs with the shared web/API Access audience. Local development uses the local auth provider when `NODE_ENV=development`.
 
 ## Bootstrap State Backend
 

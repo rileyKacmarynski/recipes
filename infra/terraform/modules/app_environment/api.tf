@@ -34,9 +34,10 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      CLOUDFLARE_ACCESS_AUD         = cloudflare_zero_trust_access_application.api.aud
+      CLOUDFLARE_ACCESS_AUD         = cloudflare_zero_trust_access_application.web.aud
       CLOUDFLARE_ACCESS_TEAM_DOMAIN = var.cloudflare_access_team_domain
       WEB_ORIGIN                    = "https://${var.web_hostname}"
+      NODE_ENV                      = var.environment
     }
   }
 

@@ -81,7 +81,7 @@ resource "cloudflare_record" "api" {
 
 resource "cloudflare_zero_trust_access_policy" "web_owner" {
   account_id = var.cloudflare_account_id
-  name       = "${var.name_prefix}-web-owner"
+  name       = "${var.name_prefix}-app-owner"
   decision   = "allow"
 
   include {
@@ -91,34 +91,18 @@ resource "cloudflare_zero_trust_access_policy" "web_owner" {
 
 resource "cloudflare_zero_trust_access_application" "web" {
   account_id                 = var.cloudflare_account_id
-  name                       = "${var.name_prefix}-web"
+  name                       = "${var.name_prefix}-app"
   domain                     = var.web_hostname
   type                       = "self_hosted"
   session_duration           = "24h"
   http_only_cookie_attribute = true
-  same_site_cookie_attribute = "lax"
-  policies                   = [cloudflare_zero_trust_access_policy.web_owner.id]
-}
-
-resource "cloudflare_zero_trust_access_policy" "api_owner" {
-  account_id = var.cloudflare_account_id
-  name       = "${var.name_prefix}-api-owner"
-  decision   = "allow"
-
-  include {
-    email = [var.access_allowed_email]
-  }
-}
-
-resource "cloudflare_zero_trust_access_application" "api" {
-  account_id                 = var.cloudflare_account_id
-  name                       = "${var.name_prefix}-api"
-  domain                     = var.api_hostname
-  type                       = "self_hosted"
-  session_duration           = "24h"
-  http_only_cookie_attribute = true
   same_site_cookie_attribute = "none"
-  policies                   = [cloudflare_zero_trust_access_policy.api_owner.id]
+  policies                   = [cloudflare_zero_trust_access_policy.web_owner.id]
+
+  destinations {
+    type = "public"
+    uri  = var.api_hostname
+  }
 
   cors_headers {
     allow_credentials = true

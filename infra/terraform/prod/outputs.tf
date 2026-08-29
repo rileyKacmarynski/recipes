@@ -29,12 +29,12 @@ output "api_gateway_domain_name" {
 }
 
 output "web_access_aud" {
-  description = "Cloudflare Access AUD tag for the web app."
+  description = "Cloudflare Access AUD tag for the shared web/API app."
   value       = module.app_environment.web_access_aud
 }
 
 output "api_access_aud" {
-  description = "Cloudflare Access AUD tag for the API app."
+  description = "Cloudflare Access AUD tag for the shared web/API app."
   value       = module.app_environment.api_access_aud
 }
 

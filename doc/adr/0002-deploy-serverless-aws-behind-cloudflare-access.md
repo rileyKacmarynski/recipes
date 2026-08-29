@@ -25,6 +25,7 @@ Deploy the production app on AWS serverless infrastructure behind Cloudflare DNS
 - Manage AWS and Cloudflare resources with Terraform under `infra/terraform/`.
 - Use an S3 Terraform backend with native S3 lockfile locking.
 - Use Cloudflare Access with One-Time PIN email login for the owner's email as the initial policy.
+- Protect the SPA and API hostnames with one Cloudflare Access application so browser session establishment and API JWT validation use the same Access audience.
 - Deploy production infrastructure and application artifacts through GitHub Actions using OIDC to assume a production deploy role gated by the GitHub `production` environment.
 - Keep Terraform backend bootstrap local.
 

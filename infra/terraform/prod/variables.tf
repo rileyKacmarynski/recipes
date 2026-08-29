@@ -1,3 +1,9 @@
+variable "environment" {
+  description = "The environment of the deployment"
+  type        = string
+  default     = "production"
+}
+
 variable "aws_profile" {
   description = "AWS CLI profile used for local Terraform applies. Leave null when credentials come from the environment, such as in GitHub Actions."
   type        = string
@@ -28,13 +34,11 @@ variable "access_allowed_email" {
 variable "github_oidc_subject" {
   description = "GitHub OIDC subject allowed to assume the app artifact deploy role."
   type        = string
-  default     = "repo:rileyKacmarynski@28719606/recipes@1324636296:environment:production"
 }
 
 variable "terraform_state_bucket" {
   description = "S3 bucket that stores production Terraform state for deploy-time output reads."
   type        = string
-  default     = "recipes-terraform-state-699281550169"
 }
 
 variable "api_lambda_zip_path" {

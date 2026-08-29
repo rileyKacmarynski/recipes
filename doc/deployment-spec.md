@@ -155,10 +155,11 @@ Implement after first infrastructure is deployed.
 Acceptance criteria:
 
 - Add Hono middleware that verifies Cloudflare Access JWTs using Cloudflare JWKS.
-- Configure with `CLOUDFLARE_ACCESS_JWT_REQUIRED`, `CLOUDFLARE_ACCESS_TEAM_DOMAIN`, and `CLOUDFLARE_ACCESS_AUD`.
-- Production requires verification once configured.
+- Protect the SPA and API hostnames with one Cloudflare Access application so both origins share one Access audience.
+- Configure deployed API verification with `CLOUDFLARE_ACCESS_TEAM_DOMAIN` and the shared `CLOUDFLARE_ACCESS_AUD`.
+- Production requires verification; local development uses the local auth provider.
 - Strict CORS preflight remains allowed without JWT verification.
-- Tests cover valid token, invalid token, missing token, disabled verification, and preflight behavior.
+- Tests cover valid token, invalid token, missing token, local provider behavior, and preflight behavior.
 
 ## Durable Decision Record
 

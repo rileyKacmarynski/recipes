@@ -44,11 +44,11 @@ output "api_gateway_domain_name" {
 }
 
 output "web_access_aud" {
-  description = "Cloudflare Access AUD tag for the web app."
+  description = "Cloudflare Access AUD tag for the shared web/API app."
   value       = cloudflare_zero_trust_access_application.web.aud
 }
 
 output "api_access_aud" {
-  description = "Cloudflare Access AUD tag for the API app."
-  value       = cloudflare_zero_trust_access_application.api.aud
+  description = "Cloudflare Access AUD tag for the shared web/API app."
+  value       = cloudflare_zero_trust_access_application.web.aud
 }
