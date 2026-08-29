@@ -1,9 +1,9 @@
-import type { Recipe } from "@recipes/core";
-import { Button } from "@/components/ui/button";
+import type { Recipe } from '@recipes/core'
+import { Button } from '@/components/ui/button'
 
 type AppProps = {
-  recipes: Recipe[];
-};
+  recipes: Recipe[]
+}
 
 export function App({ recipes }: AppProps) {
   return (
@@ -33,5 +33,5 @@ export function App({ recipes }: AppProps) {
         </div>
       </section>
     </main>
-  );
+  )
 }

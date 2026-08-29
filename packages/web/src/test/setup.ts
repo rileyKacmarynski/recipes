@@ -1,7 +1,7 @@
-import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
+import '@testing-library/jest-dom/vitest'
+import { vi } from 'vitest'
 
-Object.defineProperty(window, "scrollTo", {
+Object.defineProperty(window, 'scrollTo', {
   value: vi.fn(),
   writable: true,
-});
+})

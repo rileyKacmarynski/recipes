@@ -1,48 +1,55 @@
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import type { Recipe } from "@recipes/core";
-import { cloudflareAccess, cloudflareAccessConfigFromEnv } from "./cloudflare-access";
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import type { Recipe } from '@recipes/core'
+import type { AppEnv } from './env'
+import type { AppBindings, AuthProvider } from './auth/auth'
 
 const starterRecipe: Recipe = {
-  id: "starter",
-  title: "Starter Recipe",
-};
+  id: 'starter',
+  title: 'Starter Recipe',
+}
 
 type AppOptions = {
-  access?: Parameters<typeof cloudflareAccess>[0];
-  env?: NodeJS.ProcessEnv;
-};
+  env: AppEnv
+  authProvider: AuthProvider
+}
 
-export function createApp(options: AppOptions = {}) {
-  const env = options.env ?? process.env;
-  const configuredWebOrigins = (env.WEB_ORIGIN ?? "")
-    .split(",")
+export function createApp({ env, authProvider }: AppOptions) {
+  const configuredWebOrigins = (env.WEB_ORIGIN ?? '')
+    .split(',')
     .map((origin) => origin.trim())
-    .filter(Boolean);
+    .filter(Boolean)
 
-    console.log({
-      webOrigin: process.env.WEB_ORIGIN,
-      configuredWebOrigins,
-      webOriginJson: JSON.stringify(process.env.WEB_ORIGIN),
-    })
-
-  return new Hono()
+  return new Hono<AppBindings>()
     .use(
-      "*",
+      '*',
       cors({
         origin: (origin) => {
-          if (configuredWebOrigins.includes(origin) || origin.startsWith("http://localhost:")) {
-            return origin;
+          if (configuredWebOrigins.includes(origin) || origin.startsWith('http://localhost:')) {
+            return origin
           }
 
-          return null;
+          return null
         },
         credentials: true,
       }),
     )
-    .use("*", cloudflareAccess(options.access ?? cloudflareAccessConfigFromEnv(env)))
-    .get("/health", (c) => c.json({ ok: true }))
-    .get("/recipes", (c) => c.json({ recipes: [starterRecipe] }));
-}
+    .use('*', async (c, next) => {
+      if (c.req.method === 'OPTIONS' || c.req.path === '/health') {
+        await next()
+        return
+      }
 
-export const app = createApp();
+      const identity = await authProvider(c, env)
+
+      if (!identity) {
+        return c.json({ error: 'Unauthenticated' }, 401)
+      }
+
+      c.set('identity', identity)
+
+      await next()
+    })
+    .get('/health', (c) => c.json({ ok: true }))
+    .get('/recipes', (c) => c.json({ recipes: [starterRecipe] }))
+}

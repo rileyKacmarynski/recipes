@@ -1,0 +1,14 @@
+{
+  "ignorePatterns": [
+    ".agents/**",
+    ".opencode/**",
+    ".swamp/**",
+    ".swamp.yaml",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "infra/terraform/modules/app_environment/lambda-placeholder/**",
+    "packages/web/src/routeTree.gen.ts"
+  ],
+  "semi": false,
+  "singleQuote": true
+}

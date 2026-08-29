@@ -1,5 +1,5 @@
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient } from '@tanstack/react-query'
 
 export type RouteContext = {
-  queryClient: QueryClient;
-};
+  queryClient: QueryClient
+}

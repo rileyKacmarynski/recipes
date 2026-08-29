@@ -1,145 +1,191 @@
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
-import { expect, test } from "vitest";
-import { app, createApp } from "./app";
+import { exportJWK, generateKeyPair, SignJWT } from 'jose'
+import { afterEach, expect, test, vi } from 'vitest'
+import { createApp } from './app'
+import { cloudflareAuthProvider } from './auth/cloudflareAuthProvider'
+import type { AuthProvider } from './auth/auth'
+import { localAuthProvider } from './auth/localAuthProvider'
+import { parseAppEnv, type AppEnv } from './env'
+
+const developmentEnv: AppEnv = {
+  NODE_ENV: 'development',
+  WEB_ORIGIN: 'http://localhost:5173',
+}
+
+const productionEnv: AppEnv = {
+  CLOUDFLARE_ACCESS_AUD: 'expected-aud',
+  CLOUDFLARE_ACCESS_TEAM_DOMAIN: 'team.cloudflareaccess.com',
+  NODE_ENV: 'production',
+  WEB_ORIGIN: 'https://recipes.rkac.dev',
+}
+
+const unauthenticatedAuthProvider: AuthProvider = async () => null
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 async function createAccessToken(overrides: { aud?: string; issuer?: string } = {}) {
-  const { privateKey, publicKey } = await generateKeyPair("RS256");
-  const publicJwk = await exportJWK(publicKey);
-  publicJwk.kid = "test-key";
+  const { privateKey, publicKey } = await generateKeyPair('RS256')
+  const publicJwk = await exportJWK(publicKey)
+  publicJwk.kid = 'test-key'
 
-  const token = await new SignJWT({ email: "owner@example.com" })
-    .setProtectedHeader({ alg: "RS256", kid: "test-key" })
-    .setIssuer(overrides.issuer ?? "https://team.cloudflareaccess.com")
-    .setAudience(overrides.aud ?? "expected-aud")
-    .setExpirationTime("1h")
-    .sign(privateKey);
+  const token = await new SignJWT({ email: 'owner@example.com', sub: 'owner-subject' })
+    .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
+    .setIssuer(overrides.issuer ?? 'https://team.cloudflareaccess.com')
+    .setAudience(overrides.aud ?? 'expected-aud')
+    .setExpirationTime('1h')
+    .sign(privateKey)
 
   return {
     token,
-    jwks: createLocalJWKSet({ keys: [publicJwk] }),
-  };
+    publicJwk,
+  }
 }
 
-test("GET /health returns ok", async () => {
-  const response = await app.request("/health");
+test('GET /health returns ok without authenticating', async () => {
+  const testApp = createApp({
+    authProvider: unauthenticatedAuthProvider,
+    env: developmentEnv,
+  })
 
-  expect(response.status).toBe(200);
-  await expect(response.json()).resolves.toEqual({ ok: true });
-});
+  const response = await testApp.request('/health')
 
-test("GET /recipes returns recipes", async () => {
-  const testApp = createApp({ access: { required: false } });
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({ ok: true })
+})
 
-  const response = await testApp.request("/recipes");
+test('GET /recipes returns recipes', async () => {
+  const testApp = createApp({
+    authProvider: localAuthProvider,
+    env: developmentEnv,
+  })
 
-  expect(response.status).toBe(200);
+  const response = await testApp.request('/recipes')
+
+  expect(response.status).toBe(200)
   await expect(response.json()).resolves.toEqual({
-    recipes: [{ id: "starter", title: "Starter Recipe" }],
-  });
-});
+    recipes: [{ id: 'starter', title: 'Starter Recipe' }],
+  })
+})
 
-test("GET /recipes allows requests when Cloudflare Access JWT verification is disabled", async () => {
-  const testApp = createApp({ access: { required: false } });
+test('GET /recipes rejects requests without an identity', async () => {
+  const testApp = createApp({
+    authProvider: unauthenticatedAuthProvider,
+    env: developmentEnv,
+  })
 
-  const response = await testApp.request("/recipes");
+  const response = await testApp.request('/recipes')
 
-  expect(response.status).toBe(200);
-});
+  expect(response.status).toBe(401)
+  await expect(response.json()).resolves.toEqual({ error: 'Unauthenticated' })
+})
 
-test("GET /recipes requires Cloudflare Access configuration by default", async () => {
-  const testApp = createApp({ env: {} });
+test('GET /recipes allows local development auth provider', async () => {
+  const testApp = createApp({
+    authProvider: localAuthProvider,
+    env: developmentEnv,
+  })
 
-  const response = await testApp.request("/recipes");
+  const response = await testApp.request('/recipes')
 
-  expect(response.status).toBe(500);
+  expect(response.status).toBe(200)
   await expect(response.json()).resolves.toEqual({
-    error: "Cloudflare Access JWT verification is not configured",
-  });
-});
+    recipes: [{ id: 'starter', title: 'Starter Recipe' }],
+  })
+})
 
-test("GET /recipes reproduces the initial API fetch failure before the API Access JWT is available", async () => {
-  const { jwks } = await createAccessToken();
+test('GET /recipes rejects missing Cloudflare Access JWTs', async () => {
   const testApp = createApp({
-    access: { required: true, teamDomain: "team.cloudflareaccess.com", aud: "expected-aud", jwks },
-    env: { WEB_ORIGIN: "https://recipes.rkac.dev" },
-  });
+    authProvider: cloudflareAuthProvider,
+    env: productionEnv,
+  })
 
-  const response = await testApp.request("/recipes", {
+  const response = await testApp.request('/recipes', {
     headers: {
-      origin: "https://recipes.rkac.dev",
-      referer: "https://recipes.rkac.dev/",
+      origin: 'https://recipes.rkac.dev',
+      referer: 'https://recipes.rkac.dev/',
     },
-  });
+  })
 
-  expect(response.status).toBe(401);
-  await expect(response.json()).resolves.toEqual({ error: "Missing Cloudflare Access JWT" });
-});
+  expect(response.status).toBe(401)
+  await expect(response.json()).resolves.toEqual({ error: 'Unauthenticated' })
+})
 
-test("GET /recipes rejects missing Cloudflare Access JWTs when verification is required", async () => {
-  const { jwks } = await createAccessToken();
+test('GET /recipes rejects invalid Cloudflare Access JWTs', async () => {
+  const { token, publicJwk } = await createAccessToken({ aud: 'wrong-aud' })
+  mockCloudflareJwks(publicJwk)
+
   const testApp = createApp({
-    access: { required: true, teamDomain: "team.cloudflareaccess.com", aud: "expected-aud", jwks },
-  });
+    authProvider: cloudflareAuthProvider,
+    env: productionEnv,
+  })
 
-  const response = await testApp.request("/recipes");
+  const response = await testApp.request('/recipes', {
+    headers: { 'cf-access-jwt-assertion': token },
+  })
 
-  expect(response.status).toBe(401);
-  await expect(response.json()).resolves.toEqual({ error: "Missing Cloudflare Access JWT" });
-});
+  expect(response.status).toBe(401)
+  await expect(response.json()).resolves.toEqual({ error: 'Unauthenticated' })
+})
 
-test("GET /recipes rejects invalid Cloudflare Access JWTs", async () => {
-  const { token, jwks } = await createAccessToken({ aud: "wrong-aud" });
+test('GET /recipes accepts valid Cloudflare Access JWTs', async () => {
+  const { token, publicJwk } = await createAccessToken()
+  mockCloudflareJwks(publicJwk)
+
   const testApp = createApp({
-    access: { required: true, teamDomain: "team.cloudflareaccess.com", aud: "expected-aud", jwks },
-  });
+    authProvider: cloudflareAuthProvider,
+    env: productionEnv,
+  })
 
-  const response = await testApp.request("/recipes", {
-    headers: { "cf-access-jwt-assertion": token },
-  });
+  const response = await testApp.request('/recipes', {
+    headers: { 'cf-access-jwt-assertion': token },
+  })
 
-  expect(response.status).toBe(401);
-  await expect(response.json()).resolves.toEqual({ error: "Invalid Cloudflare Access JWT" });
-});
+  expect(response.status).toBe(200)
+})
 
-test("GET /recipes accepts valid Cloudflare Access JWTs", async () => {
-  const { token, jwks } = await createAccessToken();
+test('parseAppEnv rejects production-like startup env without JWT verification config', () => {
+  expect(() =>
+    parseAppEnv({
+      NODE_ENV: 'production',
+      WEB_ORIGIN: 'https://recipes.rkac.dev',
+    }),
+  ).toThrow(/CLOUDFLARE_ACCESS_AUD/)
+})
+
+test('OPTIONS preflight does not authenticate', async () => {
   const testApp = createApp({
-    access: { required: true, teamDomain: "team.cloudflareaccess.com", aud: "expected-aud", jwks },
-  });
+    authProvider: unauthenticatedAuthProvider,
+    env: productionEnv,
+  })
 
-  const response = await testApp.request("/recipes", {
-    headers: { "cf-access-jwt-assertion": token },
-  });
-
-  expect(response.status).toBe(200);
-});
-
-test("OPTIONS preflight does not require a Cloudflare Access JWT", async () => {
-  const { jwks } = await createAccessToken();
-  const testApp = createApp({
-    access: { required: true, teamDomain: "team.cloudflareaccess.com", aud: "expected-aud", jwks },
-    env: { WEB_ORIGIN: "https://recipes.rkac.dev" },
-  });
-
-  const response = await testApp.request("/recipes", {
-    method: "OPTIONS",
+  const response = await testApp.request('/recipes', {
+    method: 'OPTIONS',
     headers: {
-      "access-control-request-method": "GET",
-      origin: "https://recipes.rkac.dev",
+      'access-control-request-method': 'GET',
+      origin: 'https://recipes.rkac.dev',
     },
-  });
+  })
 
-  expect(response.status).toBe(204);
-});
+  expect(response.status).toBe(204)
+})
 
-test("GET /health does not require a Cloudflare Access JWT", async () => {
-  const { jwks } = await createAccessToken();
+test('GET /health does not authenticate', async () => {
   const testApp = createApp({
-    access: { required: true, teamDomain: "team.cloudflareaccess.com", aud: "expected-aud", jwks },
-  });
+    authProvider: unauthenticatedAuthProvider,
+    env: productionEnv,
+  })
 
-  const response = await testApp.request("/health");
+  const response = await testApp.request('/health')
 
-  expect(response.status).toBe(200);
-  await expect(response.json()).resolves.toEqual({ ok: true });
-});
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({ ok: true })
+})
+
+function mockCloudflareJwks(publicJwk: Awaited<ReturnType<typeof exportJWK>>) {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify({ keys: [publicJwk] }), {
+      headers: { 'content-type': 'application/json' },
+    }),
+  )
+}

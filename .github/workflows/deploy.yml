@@ -173,7 +173,6 @@ jobs:
             const vars = config.Environment?.Variables ?? {};
             const required = [
               "CLOUDFLARE_ACCESS_AUD",
-              "CLOUDFLARE_ACCESS_JWT_REQUIRED",
               "CLOUDFLARE_ACCESS_TEAM_DOMAIN",
               "WEB_ORIGIN",
             ];
@@ -185,7 +184,6 @@ jobs:
               runtime: config.Runtime,
               lastModified: config.LastModified,
               hasAccessAud: Boolean(vars.CLOUDFLARE_ACCESS_AUD),
-              accessJwtRequired: vars.CLOUDFLARE_ACCESS_JWT_REQUIRED,
               hasAccessTeamDomain: Boolean(vars.CLOUDFLARE_ACCESS_TEAM_DOMAIN),
               hasWebOrigin: Boolean(vars.WEB_ORIGIN),
             }));
