@@ -51,5 +51,14 @@ export function createApp({ env, authProvider }: AppOptions) {
       await next()
     })
     .get('/health', (c) => c.json({ ok: true }))
+    .get('/me', (c) => {
+      const identity = c.get('identity')
+
+      if (!identity) {
+        return c.json({ error: 'Unauthenticated' }, 401)
+      }
+
+      return c.json({ identity })
+    })
     .get('/recipes', (c) => c.json({ recipes: [starterRecipe] }))
 }

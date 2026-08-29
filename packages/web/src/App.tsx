@@ -1,11 +1,13 @@
 import type { Recipe } from '@recipes/core'
 import { Button } from '@/components/ui/button'
+import type { IdentityContext } from './route-context'
 
 type AppProps = {
+  identity: IdentityContext
   recipes: Recipe[]
 }
 
-export function App({ recipes }: AppProps) {
+export function App({ identity, recipes }: AppProps) {
   return (
     <main className="min-h-svh bg-[radial-gradient(circle_at_top_left,var(--color-muted),transparent_34rem)] px-6 py-10 text-foreground">
       <section className="mx-auto flex min-h-[calc(100svh-5rem)] w-full max-w-5xl items-center">
@@ -18,6 +20,9 @@ export function App({ recipes }: AppProps) {
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-muted-foreground sm:text-xl">
             A clean starting point for collecting and sharing recipes.
+          </p>
+          <p className="mt-4 text-sm font-medium text-muted-foreground">
+            Signed in as {identity.email ?? identity.subject}
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
             <Button size="lg">Start with recipes</Button>

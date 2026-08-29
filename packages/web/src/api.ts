@@ -2,7 +2,14 @@ import type { AppType } from '@recipes/api/rpc'
 import type { Recipe } from '@recipes/core'
 import { hc } from 'hono/client'
 
+type IdentityContext = {
+  provider: 'local' | 'cloudflare-access'
+  subject: string
+  email?: string
+}
+
 export type Api = {
+  loadIdentity(): Promise<IdentityContext>
   loadRecipes(): Promise<Recipe[]>
 }
 
@@ -22,4 +29,15 @@ export async function loadRecipes() {
   return data.recipes
 }
 
-export const api: Api = { loadRecipes }
+export async function loadIdentity() {
+  const response = await client.me.$get()
+
+  if (!response.ok) {
+    throw new Error('Failed to authenticate')
+  }
+
+  const data = await response.json()
+  return data.identity
+}
+
+export const api: Api = { loadIdentity, loadRecipes }

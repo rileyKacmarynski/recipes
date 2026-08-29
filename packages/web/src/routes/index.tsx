@@ -9,7 +9,8 @@ export const Route = createFileRoute('/')({
 })
 
 function RouteComponent() {
+  const { identity } = Route.useRouteContext()
   const { data: recipes } = useSuspenseQuery(recipesQueryOptions)
 
-  return <App recipes={recipes} />
+  return <App identity={identity} recipes={recipes} />
 }

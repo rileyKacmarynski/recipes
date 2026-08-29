@@ -68,6 +68,24 @@ test('GET /recipes returns recipes', async () => {
   })
 })
 
+test('GET /me returns the authenticated identity', async () => {
+  const testApp = createApp({
+    authProvider: localAuthProvider,
+    env: developmentEnv,
+  })
+
+  const response = await testApp.request('/me')
+
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({
+    identity: {
+      provider: 'local',
+      subject: 'local@domain.com',
+      email: 'local@domain.com',
+    },
+  })
+})
+
 test('GET /recipes rejects requests without an identity', async () => {
   const testApp = createApp({
     authProvider: unauthenticatedAuthProvider,
