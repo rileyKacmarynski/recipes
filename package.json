@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "db:generate": "pnpm --filter @recipes/db db:generate",
+    "db:introspect": "pnpm --filter @recipes/db db:introspect",
+    "db:migrate": "pnpm --filter @recipes/db db:migrate",
+    "db:studio": "pnpm --filter @recipes/db db:studio",
+    "db:down": "docker compose down",
+    "db:up": "docker compose up -d postgres",
     "dev": "pnpm --parallel --filter @recipes/web --filter @recipes/api dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",

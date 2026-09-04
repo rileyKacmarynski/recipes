@@ -41,6 +41,17 @@ pnpm format
 pnpm typecheck
 ```
 
+Local database helpers:
+
+```sh
+pnpm db:up
+pnpm db:generate
+pnpm db:migrate
+pnpm db:introspect
+pnpm db:studio
+pnpm db:down
+```
+
 Frontend E2E helpers:
 
 ```sh
@@ -61,6 +72,8 @@ pnpm test:e2e -- -g "shows recipes page"
 - `pnpm dev` starts the frontend and backend concurrently.
 - Frontend dev server runs through Vite.
 - API server listens on `http://localhost:3000`.
+- Local Postgres listens on `localhost:5432` when started with `pnpm db:up`.
+- Copy `.env.example` values into your shell or package-local env file when running DB tooling outside the default local settings.
 - `GET /health` returns `{ "ok": true }`.
 - The core package exports `Recipe` and is imported by both apps to verify workspace linking.
 

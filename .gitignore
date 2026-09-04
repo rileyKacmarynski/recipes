@@ -6,7 +6,10 @@ test-results
 packages/web/.tanstack/
 *.tsbuildinfo
 .DS_Store
+.env
 .env.local
+.env.*
+!.env.example
 .worktrees/
 .terraform/
 **/.terraform/
