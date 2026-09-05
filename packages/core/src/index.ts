@@ -1,4 +1,1 @@
-export type Recipe = {
-  id: string
-  title: string
-}
+export * from './recipes'
