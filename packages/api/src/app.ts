@@ -1,20 +1,17 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { Recipe } from '@recipes/core'
+import { createRecipeSchema, type Recipes } from '@recipes/core'
 import type { AppEnv } from './env'
 import type { AppBindings, AuthProvider } from './auth/auth'
-
-const starterRecipe: Recipe = {
-  id: 'starter',
-  title: 'Starter Recipe',
-}
+import { zValidator } from './validation'
 
 type AppOptions = {
   env: AppEnv
   authProvider: AuthProvider
+  recipes: Recipes
 }
 
-export function createApp({ env, authProvider }: AppOptions) {
+export function createApp({ env, authProvider, recipes }: AppOptions) {
   const configuredWebOrigins = (env.WEB_ORIGIN ?? '')
     .split(',')
     .map((origin) => origin.trim())
@@ -60,5 +57,10 @@ export function createApp({ env, authProvider }: AppOptions) {
 
       return c.json({ identity })
     })
-    .get('/recipes', (c) => c.json({ recipes: [starterRecipe] }))
+    .get('/recipes', async (c) => c.json({ recipes: await recipes.list() }))
+    .post('/recipes', zValidator('json', createRecipeSchema), async (c) => {
+      const recipe = await recipes.create(c.req.valid('json'))
+
+      return c.json({ recipe }, 201)
+    })
 }

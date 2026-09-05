@@ -13,13 +13,15 @@
     "build": "tsc -p tsconfig.json",
     "build:lambda": "esbuild src/lambda.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/index.mjs",
     "package:lambda": "pnpm build:lambda && cd dist/lambda && zip -qr ../api-lambda.zip index.mjs",
-    "test": "vitest run --exclude dist/**",
-    "test:unit": "vitest run --exclude dist/**",
+    "test": "vitest run --exclude 'dist/**'",
+    "test:unit": "vitest run --exclude 'dist/**'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "2.1.0",
+    "@hono/zod-validator": "0.9.1",
     "@recipes/core": "workspace:*",
+    "@recipes/db": "workspace:*",
     "hono": "4.13.1",
     "jose": "6.2.8",
     "zod": "4.4.3"

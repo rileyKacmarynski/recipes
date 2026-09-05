@@ -9,6 +9,10 @@ afterEach(() => {
 test('Lambda handler serves the Hono app', async () => {
   vi.stubEnv('CLOUDFLARE_ACCESS_AUD', 'expected-aud')
   vi.stubEnv('CLOUDFLARE_ACCESS_TEAM_DOMAIN', 'team.cloudflareaccess.com')
+  vi.stubEnv('DATABASE_DRIVER', 'data-api')
+  vi.stubEnv('DATABASE_NAME', 'recipes')
+  vi.stubEnv('DATABASE_RESOURCE_ARN', 'arn:aws:rds:us-east-1:123456789012:cluster:recipes')
+  vi.stubEnv('DATABASE_SECRET_ARN', 'arn:aws:secretsmanager:us-east-1:123456789012:secret:recipes')
   vi.stubEnv('NODE_ENV', 'production')
   vi.stubEnv('WEB_ORIGIN', 'https://recipes.rkac.dev')
 

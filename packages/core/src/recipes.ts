@@ -6,13 +6,14 @@ import { recipes as recipesTable } from '@recipes/db'
 
 export const recipeSchema = z.object({
   id: z.uuid(),
-  title: z.string().trim().min(1),
+  title: z.string().trim().min(1, { error: 'Recipe title is required' }),
 })
 
 export const createRecipeSchema = recipeSchema.pick({ title: true })
 
 export type Recipe = z.infer<typeof recipeSchema>
 export type CreateRecipe = z.infer<typeof createRecipeSchema>
+export type Recipes = ReturnType<typeof createRecipes>
 
 export function createRecipes(db: RecipesDatabase) {
   return {
