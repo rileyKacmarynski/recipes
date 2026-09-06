@@ -1,5 +1,7 @@
 import { queryOptions } from '@tanstack/react-query'
-import { loadIdentity, loadRecipes } from '../api'
+import { createRecipe, loadIdentity, loadRecipes } from '../api'
+
+export { createRecipe }
 
 export const identityQueryKey = ['identity'] as const
 

@@ -1,5 +1,5 @@
 import type { AppType } from '@recipes/api/rpc'
-import type { Recipe } from '@recipes/core'
+import type { CreateRecipe, Recipe } from '@recipes/core'
 import { hc } from 'hono/client'
 
 type IdentityContext = {
@@ -9,6 +9,7 @@ type IdentityContext = {
 }
 
 export type Api = {
+  createRecipe(input: CreateRecipe): Promise<Recipe>
   loadIdentity(): Promise<IdentityContext>
   loadRecipes(): Promise<Recipe[]>
 }
@@ -29,6 +30,17 @@ export async function loadRecipes() {
   return data.recipes
 }
 
+export async function createRecipe(input: CreateRecipe) {
+  const response = await client.recipes.$post({ json: input })
+
+  if (!response.ok) {
+    throw new Error('Failed to create recipe')
+  }
+
+  const data = await response.json()
+  return data.recipe
+}
+
 export async function loadIdentity() {
   const response = await client.me.$get()
 
@@ -40,4 +52,4 @@ export async function loadIdentity() {
   return data.identity
 }
 
-export const api: Api = { loadIdentity, loadRecipes }
+export const api: Api = { createRecipe, loadIdentity, loadRecipes }
