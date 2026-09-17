@@ -79,7 +79,7 @@ resource "aws_rds_cluster" "database" {
   enable_http_endpoint        = true
   engine                      = "aurora-postgresql"
   engine_mode                 = "provisioned"
-  engine_version              = "18.4.1"
+  engine_version              = "18.4"
   manage_master_user_password = true
   master_username             = "recipes_admin"
   storage_encrypted           = true
