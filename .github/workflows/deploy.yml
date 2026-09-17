@@ -144,8 +144,12 @@ jobs:
           lambda_function="$(jq -r '.api_lambda_function_name.value' prod-outputs.json)"
           web_url="$(jq -r '.web_url.value' prod-outputs.json)"
           api_url="$(jq -r '.api_url.value' prod-outputs.json)"
+          database_driver="$(jq -r '.database_driver.value' prod-outputs.json)"
+          database_name="$(jq -r '.database_name.value' prod-outputs.json)"
+          database_resource_arn="$(jq -r '.database_resource_arn.value' prod-outputs.json)"
+          database_secret_arn="$(jq -r '.database_secret_arn.value' prod-outputs.json)"
 
-          for value in "$web_bucket" "$distribution_id" "$lambda_function" "$web_url" "$api_url"; do
+          for value in "$web_bucket" "$distribution_id" "$lambda_function" "$web_url" "$api_url" "$database_driver" "$database_name" "$database_resource_arn" "$database_secret_arn"; do
             if [ -z "$value" ] || [ "$value" = "null" ]; then
               printf 'A required Terraform output is missing.\n' >&2
               exit 1
@@ -157,6 +161,14 @@ jobs:
           printf 'lambda_function=%s\n' "$lambda_function" >>"$GITHUB_OUTPUT"
           printf 'web_url=%s\n' "$web_url" >>"$GITHUB_OUTPUT"
           printf 'api_url=%s\n' "$api_url" >>"$GITHUB_OUTPUT"
+          printf '::add-mask::%s\n' "$database_secret_arn"
+          printf 'DATABASE_DRIVER=%s\n' "$database_driver" >>"$GITHUB_ENV"
+          printf 'DATABASE_NAME=%s\n' "$database_name" >>"$GITHUB_ENV"
+          printf 'DATABASE_RESOURCE_ARN=%s\n' "$database_resource_arn" >>"$GITHUB_ENV"
+          printf 'DATABASE_SECRET_ARN=%s\n' "$database_secret_arn" >>"$GITHUB_ENV"
+
+      - name: Run database migrations
+        run: pnpm db:migrate
 
       - name: Verify API Lambda Access configuration
         env:
@@ -175,6 +187,10 @@ jobs:
             const required = [
               "CLOUDFLARE_ACCESS_AUD",
               "CLOUDFLARE_ACCESS_TEAM_DOMAIN",
+              "DATABASE_DRIVER",
+              "DATABASE_NAME",
+              "DATABASE_RESOURCE_ARN",
+              "DATABASE_SECRET_ARN",
               "WEB_ORIGIN",
             ];
             const missing = required.filter((key) => !vars[key]);
@@ -186,6 +202,10 @@ jobs:
               lastModified: config.LastModified,
               hasAccessAud: Boolean(vars.CLOUDFLARE_ACCESS_AUD),
               hasAccessTeamDomain: Boolean(vars.CLOUDFLARE_ACCESS_TEAM_DOMAIN),
+              hasDatabaseDriver: vars.DATABASE_DRIVER === "data-api",
+              hasDatabaseName: Boolean(vars.DATABASE_NAME),
+              hasDatabaseResourceArn: Boolean(vars.DATABASE_RESOURCE_ARN),
+              hasDatabaseSecretArn: Boolean(vars.DATABASE_SECRET_ARN),
               hasWebOrigin: Boolean(vars.WEB_ORIGIN),
             }));
 

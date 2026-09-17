@@ -38,6 +38,8 @@ export CLOUDFLARE_API_TOKEN="..."
 
 Production API requests validate Cloudflare Access JWTs with the shared web/API Access audience. Local development uses the local auth provider when `NODE_ENV=development`.
 
+Production database access uses Aurora PostgreSQL Serverless v2 through the RDS Data API. Terraform creates a dedicated private database VPC with no internet gateway, NAT gateway, or public database access. Lambda receives `DATABASE_DRIVER=data-api` plus the database name, cluster ARN, and Secrets Manager credential secret ARN from Terraform-managed resources.
+
 ## Bootstrap State Backend
 
 Run bootstrap first with local state:
@@ -70,6 +72,8 @@ terraform -chdir=infra/terraform/prod apply
 
 Terraform creates the production AWS resources, Cloudflare DNS records, Cloudflare Access applications, and Access policies. Do not manually create S3 buckets, CloudFront distributions, Lambda functions, API Gateway resources, or app DNS records for this deployment.
 
+Terraform also creates the production Aurora PostgreSQL cluster, the managed Secrets Manager credential secret, runtime Lambda database permissions, and deploy-role Data API permissions needed by migration tooling.
+
 Production uses one-label hostnames under `rkac.dev`, which keeps them within Cloudflare Universal SSL's wildcard coverage for the zone.
 
 ## GitHub Production Deploy
@@ -86,6 +90,13 @@ Production Terraform creates the GitHub OIDC role used by `.github/workflows/dep
 - `CLOUDFLARE_API_TOKEN`: Cloudflare API token with Access and DNS edit permissions
 
 The GitHub deploy workflow builds the API Lambda zip, applies production Terraform with that artifact, reads Terraform outputs from remote state, deploys web artifacts, invalidates CloudFront, and runs smoke checks.
+
+Database-related outputs available to deployment and migration steps:
+
+- `database_driver`: production database driver, currently `data-api`
+- `database_name`: Aurora database name
+- `database_resource_arn`: Aurora cluster ARN for RDS Data API calls
+- `database_secret_arn`: Secrets Manager credential secret ARN, marked sensitive
 
 Because the deploy role is itself managed by Terraform, permission changes to that role still require a local production apply before GitHub Actions can use the new permissions.
 

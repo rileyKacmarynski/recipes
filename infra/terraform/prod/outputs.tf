@@ -42,3 +42,24 @@ output "github_actions_deploy_role_arn" {
   description = "IAM role ARN for GitHub Actions app artifact deployment."
   value       = aws_iam_role.github_actions_deploy.arn
 }
+
+output "database_driver" {
+  description = "Production database driver for API and migration tooling."
+  value       = module.app_environment.database_driver
+}
+
+output "database_name" {
+  description = "Production Aurora database name."
+  value       = module.app_environment.database_name
+}
+
+output "database_resource_arn" {
+  description = "Production Aurora cluster ARN used as the Data API resource ARN."
+  value       = module.app_environment.database_resource_arn
+}
+
+output "database_secret_arn" {
+  description = "Production Aurora credentials secret ARN."
+  value       = module.app_environment.database_secret_arn
+  sensitive   = true
+}

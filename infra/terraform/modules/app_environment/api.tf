@@ -24,6 +24,35 @@ resource "aws_iam_role_policy_attachment" "api_lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+data "aws_iam_policy_document" "api_lambda_database" {
+  statement {
+    sid = "UseDatabaseDataApi"
+
+    actions = [
+      "rds-data:BatchExecuteStatement",
+      "rds-data:BeginTransaction",
+      "rds-data:CommitTransaction",
+      "rds-data:ExecuteStatement",
+      "rds-data:RollbackTransaction",
+    ]
+
+    resources = [aws_rds_cluster.database.arn]
+  }
+
+  statement {
+    sid = "ReadDatabaseCredentials"
+
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_rds_cluster.database.master_user_secret[0].secret_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "api_lambda_database" {
+  name   = "database-runtime"
+  role   = aws_iam_role.api_lambda.id
+  policy = data.aws_iam_policy_document.api_lambda_database.json
+}
+
 resource "aws_lambda_function" "api" {
   function_name    = "${var.name_prefix}-api"
   role             = aws_iam_role.api_lambda.arn
@@ -36,6 +65,10 @@ resource "aws_lambda_function" "api" {
     variables = {
       CLOUDFLARE_ACCESS_AUD         = cloudflare_zero_trust_access_application.web.aud
       CLOUDFLARE_ACCESS_TEAM_DOMAIN = var.cloudflare_access_team_domain
+      DATABASE_DRIVER               = "data-api"
+      DATABASE_NAME                 = aws_rds_cluster.database.database_name
+      DATABASE_RESOURCE_ARN         = aws_rds_cluster.database.arn
+      DATABASE_SECRET_ARN           = aws_rds_cluster.database.master_user_secret[0].secret_arn
       WEB_ORIGIN                    = "https://${var.web_hostname}"
       NODE_ENV                      = var.environment
     }
@@ -44,6 +77,7 @@ resource "aws_lambda_function" "api" {
   depends_on = [
     aws_cloudwatch_log_group.api,
     aws_iam_role_policy_attachment.api_lambda_basic,
+    aws_iam_role_policy.api_lambda_database,
   ]
 
 }

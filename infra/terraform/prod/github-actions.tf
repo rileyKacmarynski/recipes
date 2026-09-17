@@ -96,6 +96,27 @@ data "aws_iam_policy_document" "github_actions_deploy" {
 
     resources = [module.app_environment.api_lambda_function_arn]
   }
+
+  statement {
+    sid = "RunDatabaseMigrations"
+
+    actions = [
+      "rds-data:BatchExecuteStatement",
+      "rds-data:BeginTransaction",
+      "rds-data:CommitTransaction",
+      "rds-data:ExecuteStatement",
+      "rds-data:RollbackTransaction",
+    ]
+
+    resources = [module.app_environment.database_resource_arn]
+  }
+
+  statement {
+    sid = "ReadDatabaseMigrationCredentials"
+
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [module.app_environment.database_secret_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "github_actions_deploy" {

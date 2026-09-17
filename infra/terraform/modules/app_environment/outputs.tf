@@ -52,3 +52,24 @@ output "api_access_aud" {
   description = "Cloudflare Access AUD tag for the shared web/API app."
   value       = cloudflare_zero_trust_access_application.web.aud
 }
+
+output "database_driver" {
+  description = "Runtime database driver for API and migration tooling."
+  value       = "data-api"
+}
+
+output "database_name" {
+  description = "Aurora database name."
+  value       = aws_rds_cluster.database.database_name
+}
+
+output "database_resource_arn" {
+  description = "Aurora cluster ARN used as the Data API resource ARN."
+  value       = aws_rds_cluster.database.arn
+}
+
+output "database_secret_arn" {
+  description = "Secrets Manager ARN for Aurora master credentials."
+  value       = aws_rds_cluster.database.master_user_secret[0].secret_arn
+  sensitive   = true
+}
