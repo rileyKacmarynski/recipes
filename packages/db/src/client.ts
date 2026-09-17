@@ -5,6 +5,12 @@ import postgres from 'postgres'
 import * as schema from './schema'
 
 const localDatabaseUrl = 'postgres://recipes:recipes@localhost:5432/recipes'
+const dataApiResumeRetryDelaysMs = [1_000, 2_000, 4_000, 8_000, 8_000, 8_000]
+const dataApiResumeErrorNames = new Set([
+  'DatabaseResumingException',
+  'DatabaseUnavailableException',
+  'ServiceUnavailableError',
+])
 
 export type DatabaseEnv = {
   DATABASE_DRIVER?: 'postgres' | 'data-api'
@@ -36,7 +42,7 @@ export function createDataApiClient({
   rdsDataClientConfig,
   secretArn,
 }: DataApiClientOptions) {
-  const client = rdsDataClientConfig ? new RDSDataClient(rdsDataClientConfig) : new RDSDataClient()
+  const client = createRdsDataClient(rdsDataClientConfig)
 
   return drizzleDataApi(client, {
     database,
@@ -44,6 +50,47 @@ export function createDataApiClient({
     schema,
     secretArn,
   })
+}
+
+function createRdsDataClient(config?: RDSDataClientConfig) {
+  const client = config ? new RDSDataClient(config) : new RDSDataClient()
+
+  client.middlewareStack.add(
+    (next) => async (args) => {
+      for (const [attempt, delayMs] of dataApiResumeRetryDelaysMs.entries()) {
+        try {
+          return await next(args)
+        } catch (error) {
+          if (!isDataApiResumeError(error)) {
+            throw error
+          }
+
+          console.warn(`RDS Data API is resuming; retrying query attempt ${attempt + 1}`)
+          await delay(delayMs)
+        }
+      }
+
+      return next(args)
+    },
+    {
+      name: 'dataApiResumeRetry',
+      step: 'finalizeRequest',
+    },
+  )
+
+  return client
+}
+
+function isDataApiResumeError(error: unknown) {
+  if (!error || typeof error !== 'object' || !('name' in error)) {
+    return false
+  }
+
+  return dataApiResumeErrorNames.has(String(error.name))
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 export type DataApiClient = ReturnType<typeof createDataApiClient>

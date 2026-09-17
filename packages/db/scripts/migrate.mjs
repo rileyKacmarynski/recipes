@@ -12,6 +12,12 @@ import {
 } from '@aws-sdk/client-rds-data'
 
 const packageDir = dirname(dirname(fileURLToPath(import.meta.url)))
+const dataApiResumeRetryDelaysMs = [1_000, 2_000, 4_000, 8_000, 8_000, 8_000]
+const dataApiResumeErrorNames = new Set([
+  'DatabaseResumingException',
+  'DatabaseUnavailableException',
+  'ServiceUnavailableError',
+])
 
 if (process.env.DATABASE_DRIVER !== 'data-api') {
   const child = spawn('drizzle-kit', ['migrate', '--config', 'drizzle.config.ts'], {
@@ -38,9 +44,10 @@ async function migrateDataApi() {
   const secretArn = requiredEnv('DATABASE_SECRET_ARN')
   const client = new RDSDataClient({})
   const base = { database, resourceArn, secretArn }
+  const send = (command) => sendWithResumeRetry(client, command)
 
   const execute = async (sql, parameters = [], transactionId) => {
-    return client.send(
+    return send(
       new ExecuteStatementCommand({
         ...base,
         continueAfterTimeout: true,
@@ -72,7 +79,7 @@ async function migrateDataApi() {
     }
 
     console.log(`Applying migration ${migration.tag}`)
-    const { transactionId } = await client.send(new BeginTransactionCommand(base))
+    const { transactionId } = await send(new BeginTransactionCommand(base))
 
     try {
       for (const statement of migration.sql) {
@@ -89,9 +96,9 @@ async function migrateDataApi() {
         ],
         transactionId,
       )
-      await client.send(new CommitTransactionCommand({ ...base, transactionId }))
+      await send(new CommitTransactionCommand({ ...base, transactionId }))
     } catch (error) {
-      await rollback(client, base, transactionId)
+      await rollback(send, base, transactionId)
       console.error(`Migration ${migration.tag} failed`)
       throw error
     }
@@ -114,13 +121,38 @@ function readMigrations() {
   })
 }
 
-async function rollback(client, base, transactionId) {
+async function rollback(send, base, transactionId) {
   try {
-    await client.send(new RollbackTransactionCommand({ ...base, transactionId }))
+    await send(new RollbackTransactionCommand({ ...base, transactionId }))
   } catch (error) {
     console.error('Failed to roll back migration transaction')
     console.error(error)
   }
+}
+
+async function sendWithResumeRetry(client, command) {
+  for (const [attempt, delayMs] of dataApiResumeRetryDelaysMs.entries()) {
+    try {
+      return await client.send(command)
+    } catch (error) {
+      if (!isDataApiResumeError(error)) {
+        throw error
+      }
+
+      console.warn(`RDS Data API is resuming; retrying query attempt ${attempt + 1}`)
+      await delay(delayMs)
+    }
+  }
+
+  return client.send(command)
+}
+
+function isDataApiResumeError(error) {
+  return dataApiResumeErrorNames.has(String(error?.name))
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
 function requiredEnv(name) {
