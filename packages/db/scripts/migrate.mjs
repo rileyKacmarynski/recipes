@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -107,18 +107,40 @@ async function migrateDataApi() {
 
 function readMigrations() {
   const migrationsDir = join(packageDir, 'drizzle')
-  const journal = JSON.parse(readFileSync(join(migrationsDir, 'meta/_journal.json'), 'utf8'))
 
-  return journal.entries.map((entry) => {
-    const query = readFileSync(join(migrationsDir, `${entry.tag}.sql`), 'utf8')
+  return readdirSync(migrationsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const query = readFileSync(join(migrationsDir, entry.name, 'migration.sql'), 'utf8')
 
-    return {
-      folderMillis: entry.when,
-      hash: createHash('sha256').update(query).digest('hex'),
-      sql: query.split('--> statement-breakpoint'),
-      tag: entry.tag,
-    }
-  })
+      return migrationFromSql({
+        folderMillis: migrationFolderMillis(entry.name),
+        query,
+        tag: entry.name,
+      })
+    })
+    .sort((left, right) => left.folderMillis - right.folderMillis)
+}
+
+function migrationFromSql({ folderMillis, query, tag }) {
+  return {
+    folderMillis,
+    hash: createHash('sha256').update(query).digest('hex'),
+    sql: query.split('--> statement-breakpoint'),
+    tag,
+  }
+}
+
+function migrationFolderMillis(folderName) {
+  const match = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_/.exec(folderName)
+
+  if (!match) {
+    throw new Error(`Could not parse migration timestamp from ${folderName}`)
+  }
+
+  const [, year, month, day, hour, minute, second] = match.map(Number)
+
+  return Date.UTC(year, month - 1, day, hour, minute, second)
 }
 
 async function rollback(send, base, transactionId) {
