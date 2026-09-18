@@ -81,6 +81,13 @@ resource "aws_lambda_function" "api" {
     aws_iam_role_policy.api_lambda_database,
   ]
 
+  lifecycle {
+    ignore_changes = [
+      filename,
+      source_code_hash,
+    ]
+  }
+
 }
 
 resource "aws_apigatewayv2_api" "api" {

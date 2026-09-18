@@ -109,10 +109,11 @@ jobs:
             exit 1
           fi
 
+          printf 'LAMBDA_ZIP_PATH=%s\n' "$lambda_zip" >>"$GITHUB_ENV"
           printf 'TF_VAR_api_lambda_zip_path=%s\n' "$lambda_zip" >>"$GITHUB_ENV"
           printf 'TF_VAR_api_lambda_source_code_hash=%s\n' "$(openssl dgst -sha256 -binary "$lambda_zip" | openssl base64 -A)" >>"$GITHUB_ENV"
 
-      - name: Apply production Terraform
+      - name: Apply production Terraform infrastructure
         run: |
           if [ -z "$TF_BACKEND_BUCKET" ]; then
             printf 'Missing GitHub secret: TERRAFORM_STATE_BUCKET\n' >&2
@@ -169,6 +170,18 @@ jobs:
 
       - name: Run database migrations
         run: pnpm db:migrate
+
+      - name: Deploy API Lambda code
+        env:
+          API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
+        run: |
+          aws lambda update-function-code \
+            --function-name "$API_LAMBDA_FUNCTION" \
+            --zip-file "fileb://$LAMBDA_ZIP_PATH" \
+            >/dev/null
+
+          aws lambda wait function-updated \
+            --function-name "$API_LAMBDA_FUNCTION"
 
       - name: Verify API Lambda Access configuration
         env:
