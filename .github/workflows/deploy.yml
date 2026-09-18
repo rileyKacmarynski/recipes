@@ -48,6 +48,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Check database migrations
+        run: pnpm --filter @recipes/db exec drizzle-kit check --config drizzle.config.ts
+
       - name: Unit tests
         run: pnpm test:unit
 
