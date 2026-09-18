@@ -2,7 +2,6 @@ import { RDSDataClient, type RDSDataClientConfig } from '@aws-sdk/client-rds-dat
 import { drizzle as drizzleDataApi } from 'drizzle-orm/aws-data-api/pg'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import * as schema from './schema'
 
 const localDatabaseUrl = 'postgres://recipes:recipes@localhost:5432/recipes'
 const dataApiResumeRetryDelaysMs = [1_000, 2_000, 4_000, 8_000, 8_000, 8_000]
@@ -24,7 +23,7 @@ export type DatabaseEnv = {
 export function createLocalPostgresClient(databaseUrl: string) {
   const client = postgres(databaseUrl)
 
-  return drizzlePostgres(client, { schema })
+  return drizzlePostgres({ client })
 }
 
 export type LocalPostgresClient = ReturnType<typeof createLocalPostgresClient>
@@ -44,10 +43,10 @@ export function createDataApiClient({
 }: DataApiClientOptions) {
   const client = createRdsDataClient(rdsDataClientConfig)
 
-  return drizzleDataApi(client, {
+  return drizzleDataApi({
+    client,
     database,
     resourceArn,
-    schema,
     secretArn,
   })
 }

@@ -7,6 +7,7 @@
     "db:generate": "pnpm --filter @recipes/db db:generate",
     "db:introspect": "pnpm --filter @recipes/db db:introspect",
     "db:migrate": "pnpm --filter @recipes/db db:migrate",
+    "db:studio:prod": "pnpm --filter @recipes/db db:studio:prod",
     "db:studio": "pnpm --filter @recipes/db db:studio",
     "db:down": "docker compose down",
     "db:up": "docker compose up -d postgres",
