@@ -60,6 +60,28 @@ pnpm test:e2e:headed
 pnpm test:e2e:ui
 ```
 
+### Database-backed tests
+
+`pnpm test` and `pnpm test:unit` skip database-backed suites by default and do not
+require Docker. To include the real Postgres recipe and API behavior tests, start
+Docker Desktop or OrbStack (check that `docker info` succeeds), then run:
+
+```sh
+RUN_DB_TESTS=1 pnpm --filter @recipes/core test
+RUN_DB_TESTS=1 pnpm --filter @recipes/api test
+# Or run all packages, including their DB-backed suites:
+RUN_DB_TESTS=1 pnpm test
+```
+
+Each DB-backed test file starts its own disposable `postgres:18.1-alpine`
+Testcontainers container on a random host port and applies the checked-in Drizzle
+migrations before assertions. These tests ignore `DATABASE_URL` and do not need
+`pnpm db:up` or a manually migrated development database. Data is reset between
+tests; connections and containers are closed after the suite, including migration
+failures. The first run needs network access to pull the container images and can
+take longer. If Docker is unavailable, explicitly enabled DB tests fail rather
+than silently falling back to the development database.
+
 Playwright filters can be passed after `--`:
 
 ```sh

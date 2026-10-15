@@ -1,7 +1,8 @@
 import { exportJWK, generateKeyPair, SignJWT } from 'jose'
-import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createRecipes, type CreateRecipe, type Recipe, type Recipes } from '@recipes/core'
-import { createLocalPostgresClient } from '@recipes/db'
+import { recipes as recipesTable } from '@recipes/db'
+import type { createTestDatabase } from '@recipes/db/testing'
 import { createApp } from './app'
 import { cloudflareAuthProvider } from './auth/cloudflareAuthProvider'
 import type { AuthProvider } from './auth/auth'
@@ -21,7 +22,6 @@ const productionEnv: AppEnv = {
 }
 
 const unauthenticatedAuthProvider: AuthProvider = async () => null
-const databaseUrl = process.env.DATABASE_URL ?? 'postgres://recipes:recipes@localhost:5432/recipes'
 const runDbTests = process.env.RUN_DB_TESTS === '1'
 
 afterEach(() => {
@@ -109,17 +109,34 @@ test('POST /recipes rejects invalid recipe input with the schema message', async
 })
 
 describe.skipIf(!runDbTests)('DB-backed recipe routes', () => {
-  const db = createLocalPostgresClient(databaseUrl)
-  const recipes = createRecipes(db)
-  const testTitle = `Pancakes ${crypto.randomUUID()}`
+  let database: Awaited<ReturnType<typeof createTestDatabase>> | undefined
+  let recipes: Recipes
+
+  beforeAll(async () => {
+    const { createTestDatabase } = await import('@recipes/db/testing')
+    database = await createTestDatabase()
+    recipes = createRecipes(database.db)
+  }, 120_000)
 
   afterAll(async () => {
-    await db.$client`delete from recipes where title = ${testTitle}`
-    await db.$client.end()
-  })
+    await database?.stop()
+  }, 30_000)
 
   beforeEach(async () => {
-    await db.$client`delete from recipes where title = ${testTitle}`
+    await database!.db.delete(recipesTable)
+  })
+
+  test('GET /recipes returns an empty list in a fresh database', async () => {
+    const testApp = createTestApp({
+      authProvider: localAuthProvider,
+      env: developmentEnv,
+      recipes,
+    })
+
+    const response = await testApp.request('/recipes')
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ recipes: [] })
   })
 
   test('creates and lists recipes through the HTTP API', async () => {
@@ -131,21 +148,21 @@ describe.skipIf(!runDbTests)('DB-backed recipe routes', () => {
 
     const createResponse = await testApp.request('/recipes', {
       method: 'POST',
-      body: JSON.stringify({ title: `  ${testTitle}  ` }),
+      body: JSON.stringify({ title: '  Pancakes  ' }),
       headers: { 'content-type': 'application/json' },
     })
 
     expect(createResponse.status).toBe(201)
     const createBody = (await createResponse.json()) as { recipe: Recipe }
     expect(createBody).toEqual({
-      recipe: { id: expect.any(String), title: testTitle },
+      recipe: { id: expect.any(String), title: 'Pancakes' },
     })
 
     const listResponse = await testApp.request('/recipes')
 
     expect(listResponse.status).toBe(200)
     const listBody = (await listResponse.json()) as { recipes: Recipe[] }
-    expect(listBody.recipes).toContainEqual(createBody.recipe)
+    expect(listBody.recipes).toEqual([createBody.recipe])
   })
 })
 
