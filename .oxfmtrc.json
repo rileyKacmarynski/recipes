@@ -2,8 +2,6 @@
   "ignorePatterns": [
     ".agents/**",
     ".opencode/**",
-    ".swamp/**",
-    ".swamp.yaml",
     "CLAUDE.md",
     "AGENTS.md",
     "infra/terraform/modules/app_environment/lambda-placeholder/**",

@@ -1,12 +1,15 @@
 # Production Infra Workflow
 
-Use the `plan-prod` swamp workflow for local production Terraform plan review.
+Run the existing infrastructure script from the repository root for local production Terraform plan review:
 
 ```sh
-swamp workflow run plan-prod
+bash scripts/prod-infra.sh preflight &&
+  bash scripts/prod-infra.sh plan &&
+  bash scripts/prod-infra.sh inspect-plan &&
+  bash scripts/prod-infra.sh report
 ```
 
-The workflow runs preflight checks, creates a saved Terraform plan, inspects the plan for risky changes, then writes a local report. It does not apply infrastructure changes; `.github/workflows/deploy.yml` applies production Terraform after checks pass.
+These commands run preflight checks, create a saved Terraform plan, inspect the plan for risky changes, then write a local report. Each command runs only if the previous command succeeds. They do not apply infrastructure changes; `.github/workflows/deploy.yml` applies production Terraform after checks pass.
 
 Required local environment:
 
@@ -17,9 +20,9 @@ Required local environment:
 - `TF_VAR_aws_profile`, optional, defaults to `recipes-admin`
 - `TF_VAR_aws_region`, optional, defaults to `us-east-1`
 
-The workflow does not store AWS access keys. Production automation should inject secrets through the runner environment and use the standard AWS credential chain or GitHub OIDC.
+The script does not store AWS access keys. Production automation should inject secrets through the runner environment and use the standard AWS credential chain or GitHub OIDC.
 
-Production deployment is handled by `.github/workflows/deploy.yml`, not this swamp workflow. After bootstrapping Terraform state and applying the deploy role locally once, record these Terraform outputs and backend values as GitHub Actions production environment secrets:
+Production deployment is handled by `.github/workflows/deploy.yml`, not this local script. After bootstrapping Terraform state and applying the deploy role locally once, record these Terraform outputs and backend values as GitHub Actions production environment secrets:
 
 - `AWS_DEPLOY_ROLE_ARN`: `terraform -chdir=infra/terraform/prod output -raw github_actions_deploy_role_arn`
 - `TERRAFORM_STATE_BUCKET`: the bootstrap `terraform_state_bucket` output
@@ -40,4 +43,4 @@ Local artifacts are intentionally ignored by git:
 - `infra/terraform/prod/prod-outputs.env`
 - `infra/terraform/prod/prod-report.txt`
 
-This workflow is for infrastructure plan review. Do not use it for production deployment; GitHub Actions applies production Terraform and deploys built application artifacts.
+This local script is for infrastructure plan review. Do not use it for production deployment; GitHub Actions applies production Terraform and deploys built application artifacts.
