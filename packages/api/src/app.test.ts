@@ -28,16 +28,25 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function createAccessToken(overrides: { aud?: string; issuer?: string } = {}) {
+async function createAccessToken(
+  overrides: {
+    aud?: string
+    issuer?: string
+    claims?: Record<string, unknown>
+    expired?: boolean
+  } = {},
+) {
   const { privateKey, publicKey } = await generateKeyPair('RS256')
   const publicJwk = await exportJWK(publicKey)
   publicJwk.kid = 'test-key'
 
-  const token = await new SignJWT({ email: 'owner@example.com', sub: 'owner-subject' })
+  const token = await new SignJWT(
+    overrides.claims ?? { email: 'owner@example.com', sub: 'owner-subject' },
+  )
     .setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
     .setIssuer(overrides.issuer ?? 'https://team.cloudflareaccess.com')
     .setAudience(overrides.aud ?? 'expected-aud')
-    .setExpirationTime('1h')
+    .setExpirationTime(overrides.expired ? '-1s' : '1h')
     .sign(privateKey)
 
   return {
@@ -260,6 +269,142 @@ test('GET /recipes accepts valid Cloudflare Access JWTs', async () => {
   expect(response.status).toBe(200)
 })
 
+test('the configured Cloudflare service can read recipes but cannot write or read user identity', async () => {
+  const { token, publicJwk } = await createAccessToken({
+    claims: { common_name: 'smoke-client.access', sub: '' },
+  })
+  mockCloudflareJwks(publicJwk)
+  const testApp = createTestApp({
+    authProvider: cloudflareAuthProvider,
+    env: { ...productionEnv, CLOUDFLARE_SMOKE_CLIENT_ID: 'smoke-client.access' },
+    recipes: createFakeRecipes(),
+  })
+  const headers = { 'cf-access-jwt-assertion': token, 'content-type': 'application/json' }
+
+  const read = await testApp.request('/recipes', { headers })
+  expect(read.status).toBe(200)
+  await expect(read.json()).resolves.toEqual({ recipes: [] })
+
+  const write = await testApp.request('/recipes', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ title: 'Must not be saved' }),
+  })
+  expect(write.status).toBe(403)
+  await expect(write.json()).resolves.toEqual({ error: 'Forbidden' })
+  expect((await testApp.request('/me', { headers })).status).toBe(403)
+  expect((await testApp.request('/recipes', { method: 'HEAD', headers })).status).toBe(403)
+
+  const afterWrite = await testApp.request('/recipes', { headers })
+  await expect(afterWrite.json()).resolves.toEqual({ recipes: [] })
+})
+
+test.each([
+  {
+    name: 'unconfigured service',
+    clientId: undefined,
+    claims: { common_name: 'smoke-client.access', sub: '' },
+  },
+  {
+    name: 'different service',
+    clientId: 'expected.access',
+    claims: { common_name: 'other.access', sub: '' },
+  },
+  { name: 'empty user subject', clientId: undefined, claims: { sub: '' } },
+  {
+    name: 'malformed service claim',
+    clientId: 'expected.access',
+    claims: { common_name: 123, sub: 'owner-subject' },
+  },
+  {
+    name: 'mixed service and user claims',
+    clientId: 'expected.access',
+    claims: { common_name: 'expected.access', sub: 'owner-subject' },
+  },
+])('GET /recipes rejects $name', async ({ clientId, claims }) => {
+  const { token, publicJwk } = await createAccessToken({ claims })
+  mockCloudflareJwks(publicJwk)
+  const testApp = createTestApp({
+    authProvider: cloudflareAuthProvider,
+    env: { ...productionEnv, CLOUDFLARE_SMOKE_CLIENT_ID: clientId },
+  })
+
+  const response = await testApp.request('/recipes', {
+    headers: { 'cf-access-jwt-assertion': token },
+  })
+  expect(response.status).toBe(401)
+})
+
+test.each([
+  { name: 'wrong audience', aud: 'wrong-aud' },
+  { name: 'wrong issuer', issuer: 'https://other.cloudflareaccess.com' },
+  { name: 'expired token', expired: true },
+])('service authentication rejects $name', async (overrides) => {
+  const { token, publicJwk } = await createAccessToken({
+    ...overrides,
+    claims: { common_name: 'smoke-client.access', sub: '' },
+  })
+  mockCloudflareJwks(publicJwk)
+  const testApp = createTestApp({
+    authProvider: cloudflareAuthProvider,
+    env: { ...productionEnv, CLOUDFLARE_SMOKE_CLIENT_ID: 'smoke-client.access' },
+  })
+
+  const response = await testApp.request('/recipes', {
+    headers: { 'cf-access-jwt-assertion': token },
+  })
+  expect(response.status).toBe(401)
+})
+
+test('normal Cloudflare users retain recipe write access with service auth configured', async () => {
+  const { token, publicJwk } = await createAccessToken()
+  mockCloudflareJwks(publicJwk)
+  const testApp = createTestApp({
+    authProvider: cloudflareAuthProvider,
+    env: { ...productionEnv, CLOUDFLARE_SMOKE_CLIENT_ID: 'smoke-client.access' },
+  })
+
+  const response = await testApp.request('/recipes', {
+    method: 'POST',
+    headers: { 'cf-access-jwt-assertion': token, 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Pancakes' }),
+  })
+  expect(response.status).toBe(201)
+  await expect(response.json()).resolves.toEqual({ recipe: { id: 'recipe-2', title: 'Pancakes' } })
+})
+
+test('service authentication rejects a token signed by an untrusted key', async () => {
+  const { token } = await createAccessToken({
+    claims: { common_name: 'smoke-client.access', sub: '' },
+  })
+  const { publicJwk } = await createAccessToken()
+  mockCloudflareJwks(publicJwk)
+  const testApp = createTestApp({
+    authProvider: cloudflareAuthProvider,
+    env: { ...productionEnv, CLOUDFLARE_SMOKE_CLIENT_ID: 'smoke-client.access' },
+  })
+
+  const response = await testApp.request('/recipes', {
+    headers: { 'cf-access-jwt-assertion': token },
+  })
+  expect(response.status).toBe(401)
+})
+
+test('service credentials alone are not accepted as an origin JWT', async () => {
+  const testApp = createTestApp({
+    authProvider: cloudflareAuthProvider,
+    env: { ...productionEnv, CLOUDFLARE_SMOKE_CLIENT_ID: 'smoke-client.access' },
+  })
+
+  const response = await testApp.request('/recipes', {
+    headers: {
+      'CF-Access-Client-Id': 'smoke-client.access',
+      'CF-Access-Client-Secret': 'not-a-signed-jwt',
+    },
+  })
+  expect(response.status).toBe(401)
+})
+
 test('parseAppEnv rejects production-like startup env without JWT verification config', () => {
   expect(() =>
     parseAppEnv({
@@ -299,10 +444,11 @@ test('GET /health does not authenticate', async () => {
 })
 
 function mockCloudflareJwks(publicJwk: Awaited<ReturnType<typeof exportJWK>>) {
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(JSON.stringify({ keys: [publicJwk] }), {
-      headers: { 'content-type': 'application/json' },
-    }),
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ keys: [publicJwk] }), {
+        headers: { 'content-type': 'application/json' },
+      }),
   )
 }
 

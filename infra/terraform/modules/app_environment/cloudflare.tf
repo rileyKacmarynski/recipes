@@ -89,6 +89,22 @@ resource "cloudflare_zero_trust_access_policy" "web_owner" {
   }
 }
 
+resource "cloudflare_zero_trust_access_service_token" "smoke" {
+  account_id = var.cloudflare_account_id
+  name       = "${var.name_prefix}-github-smoke"
+  duration   = "8760h"
+}
+
+resource "cloudflare_zero_trust_access_policy" "smoke" {
+  account_id = var.cloudflare_account_id
+  name       = "${var.name_prefix}-github-smoke"
+  decision   = "non_identity"
+
+  include {
+    service_token = [cloudflare_zero_trust_access_service_token.smoke.id]
+  }
+}
+
 resource "cloudflare_zero_trust_access_application" "web" {
   account_id                 = var.cloudflare_account_id
   name                       = "${var.name_prefix}-app"
@@ -97,7 +113,10 @@ resource "cloudflare_zero_trust_access_application" "web" {
   session_duration           = "24h"
   http_only_cookie_attribute = true
   same_site_cookie_attribute = "none"
-  policies                   = [cloudflare_zero_trust_access_policy.web_owner.id]
+  policies = [
+    cloudflare_zero_trust_access_policy.web_owner.id,
+    cloudflare_zero_trust_access_policy.smoke.id,
+  ]
 
   destinations {
     type = "public"

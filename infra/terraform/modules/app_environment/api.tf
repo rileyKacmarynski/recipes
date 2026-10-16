@@ -66,6 +66,7 @@ resource "aws_lambda_function" "api" {
     variables = {
       CLOUDFLARE_ACCESS_AUD         = cloudflare_zero_trust_access_application.web.aud
       CLOUDFLARE_ACCESS_TEAM_DOMAIN = var.cloudflare_access_team_domain
+      CLOUDFLARE_SMOKE_CLIENT_ID    = cloudflare_zero_trust_access_service_token.smoke.client_id
       DATABASE_DRIVER               = "data-api"
       DATABASE_NAME                 = aws_rds_cluster.database.database_name
       DATABASE_RESOURCE_ARN         = aws_rds_cluster.database.arn

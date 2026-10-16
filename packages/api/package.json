@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.json",
     "build:lambda": "esbuild src/lambda.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/lambda/index.js",
     "package:lambda": "pnpm build:lambda && cd dist/lambda && zip -qr ../api-lambda.zip index.js",
+    "test:smoke": "tsx scripts/smoke-test.ts",
     "test": "vitest run --exclude 'dist/**'",
     "test:unit": "vitest run --exclude 'dist/**'",
     "typecheck": "tsc --noEmit"

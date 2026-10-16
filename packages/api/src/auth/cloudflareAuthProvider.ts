@@ -1,5 +1,15 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose'
+import { z } from 'zod'
 import type { AuthProvider } from './auth'
+
+const serviceClaimsSchema = z.object({
+  common_name: z.string().min(1),
+  sub: z.literal('').optional(),
+})
+const userClaimsSchema = z.object({
+  sub: z.string().min(1),
+  email: z.string().optional(),
+})
 
 export const cloudflareAuthProvider: AuthProvider = async (c, env) => {
   const token = c.req.header('cf-access-jwt-assertion')
@@ -24,11 +34,25 @@ export const cloudflareAuthProvider: AuthProvider = async (c, env) => {
       issuer: `https://${teamDomain}`,
     })
 
-    return typeof payload.sub === 'string'
+    // A service claim must never fall through to the unrestricted human identity path.
+    if ('common_name' in payload) {
+      const claims = serviceClaimsSchema.safeParse(payload)
+      if (!claims.success || claims.data.common_name !== env.CLOUDFLARE_SMOKE_CLIENT_ID) {
+        return null
+      }
+
+      return {
+        provider: 'cloudflare-access-service',
+        subject: claims.data.common_name,
+      }
+    }
+
+    const claims = userClaimsSchema.safeParse(payload)
+    return claims.success
       ? {
           provider: 'cloudflare-access',
-          subject: payload.sub,
-          email: typeof payload.email === 'string' ? payload.email : undefined,
+          subject: claims.data.sub,
+          email: claims.data.email,
         }
       : null
   } catch {

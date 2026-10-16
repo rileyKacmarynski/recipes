@@ -9,6 +9,7 @@ This repository is intentionally small and feature-light. Keep changes focused, 
 - React SPA in `packages/web`
 - Hono API in `packages/api`
 - Core domain TypeScript package in `packages/core`
+- Drizzle/Postgres persistence in `packages/db`, with Aurora Data API in production
 - pnpm workspaces
 - TypeScript with `strict: true`
 - Oxlint and Oxfmt
@@ -22,7 +23,8 @@ packages/
   web/      React + Vite frontend
   api/      Hono API
   core/     Core domain types and utilities
-infra/      Reserved for future infrastructure docs/config
+  db/       Schema, migrations, database clients, and test database helpers
+infra/      Production AWS/Cloudflare Terraform
 doc/
   adr/      Architecture Decision Records
 ```
@@ -99,18 +101,34 @@ pnpm test:e2e -- -g "shows recipes page"
 - `GET /health` returns `{ "ok": true }`.
 - The core package exports `Recipe` and is imported by both apps to verify workspace linking.
 
+## Deployment and production smoke tests
+
+Production uses GitHub Actions, Terraform, AWS Lambda, and Cloudflare Access.
+The deployment workflow runs a direct-Lambda `/health` smoke test and the
+authenticated DB-backed API smoke test:
+
+```sh
+pnpm --filter @recipes/api test:smoke
+```
+
+The latter requires a deployed HTTPS `API_URL` and service credentials; it does
+not build, deploy, or write recipe data and is not included in `pnpm test`.
+See the [Terraform operator guide](infra/terraform/README.md) for provisioning,
+credentials, and rotation, and [ADR 0004](doc/adr/0004-use-read-only-service-auth-for-production-smoke-tests.md)
+for the read-only service-identity boundary. Production setup and live smoke-test
+verification are pending; the implementation has been verified locally.
+
+Reviewed saved-plan deployment (#14), pipeline monitoring (#28), and built-artifact
+black-box UAT (#24) are planned work, not existing guarantees.
+
 ## Current Scope
 
-The repository is ready for the first real feature: `GET /recipes`.
+The application lists and creates persisted recipe titles. Local development uses
+Postgres; production uses Aurora through the Data API. Cloudflare Access protects
+production requests, and the API verifies signed Access JWTs.
 
 Do not add these until there is a concrete need:
 
-- Authentication
-- Database or ORM
-- Docker
-- AWS integrations
-- Terraform
-- CI/CD
 - Git hooks
 - AI libraries
 - File uploads

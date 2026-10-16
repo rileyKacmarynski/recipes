@@ -38,6 +38,17 @@ output "api_access_aud" {
   value       = module.app_environment.api_access_aud
 }
 
+output "smoke_access_client_id" {
+  description = "Cloudflare service-token client ID for production API smoke checks."
+  value       = module.app_environment.smoke_access_client_id
+}
+
+output "smoke_access_client_secret" {
+  description = "Cloudflare smoke service-token secret; sensitive Terraform state material."
+  value       = module.app_environment.smoke_access_client_secret
+  sensitive   = true
+}
+
 output "github_actions_deploy_role_arn" {
   description = "IAM role ARN for GitHub Actions app artifact deployment."
   value       = aws_iam_role.github_actions_deploy.arn

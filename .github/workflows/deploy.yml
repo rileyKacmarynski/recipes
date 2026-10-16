@@ -104,6 +104,16 @@ jobs:
       - name: Build API Lambda artifact
         run: pnpm --filter @recipes/api package:lambda
 
+      - name: Check production smoke credentials
+        env:
+          CF_ACCESS_SMOKE_CLIENT_ID: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_ID }}
+          CF_ACCESS_SMOKE_CLIENT_SECRET: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_SECRET }}
+        run: |
+          if [ -z "$CF_ACCESS_SMOKE_CLIENT_ID" ] || [ -z "$CF_ACCESS_SMOKE_CLIENT_SECRET" ]; then
+            printf 'Missing production Cloudflare smoke credentials; complete the local provisioning steps first.\n' >&2
+            exit 1
+          fi
+
       - name: Prepare Terraform artifact inputs
         run: |
           lambda_zip="$GITHUB_WORKSPACE/packages/api/dist/api-lambda.zip"
@@ -141,17 +151,19 @@ jobs:
       - name: Read production Terraform outputs
         id: terraform_outputs
         run: |
-          terraform -chdir="$TF_DIR" output -json >prod-outputs.json
+          outputs_file="$(mktemp)"
+          trap 'rm -f "$outputs_file"' EXIT
+          terraform -chdir="$TF_DIR" output -json >"$outputs_file"
 
-          web_bucket="$(jq -r '.web_bucket.value' prod-outputs.json)"
-          distribution_id="$(jq -r '.cloudfront_distribution_id.value' prod-outputs.json)"
-          lambda_function="$(jq -r '.api_lambda_function_name.value' prod-outputs.json)"
-          web_url="$(jq -r '.web_url.value' prod-outputs.json)"
-          api_url="$(jq -r '.api_url.value' prod-outputs.json)"
-          database_driver="$(jq -r '.database_driver.value' prod-outputs.json)"
-          database_name="$(jq -r '.database_name.value' prod-outputs.json)"
-          database_resource_arn="$(jq -r '.database_resource_arn.value' prod-outputs.json)"
-          database_secret_arn="$(jq -r '.database_secret_arn.value' prod-outputs.json)"
+          web_bucket="$(jq -r '.web_bucket.value' "$outputs_file")"
+          distribution_id="$(jq -r '.cloudfront_distribution_id.value' "$outputs_file")"
+          lambda_function="$(jq -r '.api_lambda_function_name.value' "$outputs_file")"
+          web_url="$(jq -r '.web_url.value' "$outputs_file")"
+          api_url="$(jq -r '.api_url.value' "$outputs_file")"
+          database_driver="$(jq -r '.database_driver.value' "$outputs_file")"
+          database_name="$(jq -r '.database_name.value' "$outputs_file")"
+          database_resource_arn="$(jq -r '.database_resource_arn.value' "$outputs_file")"
+          database_secret_arn="$(jq -r '.database_secret_arn.value' "$outputs_file")"
 
           for value in "$web_bucket" "$distribution_id" "$lambda_function" "$web_url" "$api_url" "$database_driver" "$database_name" "$database_resource_arn" "$database_secret_arn"; do
             if [ -z "$value" ] || [ "$value" = "null" ]; then
@@ -203,6 +215,7 @@ jobs:
             const required = [
               "CLOUDFLARE_ACCESS_AUD",
               "CLOUDFLARE_ACCESS_TEAM_DOMAIN",
+              "CLOUDFLARE_SMOKE_CLIENT_ID",
               "DATABASE_DRIVER",
               "DATABASE_NAME",
               "DATABASE_RESOURCE_ARN",
@@ -261,7 +274,7 @@ jobs:
             --distribution-id "$DISTRIBUTION_ID" \
             --id "$invalidation_id"
 
-      - name: Smoke check API Lambda
+      - name: Smoke test API Lambda
         env:
           API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
         run: |
@@ -315,9 +328,16 @@ jobs:
             const body = JSON.parse(response.body ?? "{}");
 
             if (response.statusCode !== 200 || body.ok !== true) {
-              console.error(`Lambda smoke check failed: ${JSON.stringify(response)}`);
+              console.error(`Lambda smoke test failed: ${JSON.stringify(response)}`);
               process.exit(1);
             }
 
-            console.log("Lambda smoke check ok: /health returned ok");
-          ' "$response_file"
+              console.log("Lambda smoke test ok: /health returned ok");
+           ' "$response_file"
+
+      - name: Smoke test DB-backed API through Cloudflare and Lambda
+        env:
+          API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
+          CF_ACCESS_SMOKE_CLIENT_ID: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_ID }}
+          CF_ACCESS_SMOKE_CLIENT_SECRET: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_SECRET }}
+        run: pnpm --filter @recipes/api test:smoke

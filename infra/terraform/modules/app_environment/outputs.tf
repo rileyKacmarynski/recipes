@@ -53,6 +53,17 @@ output "api_access_aud" {
   value       = cloudflare_zero_trust_access_application.web.aud
 }
 
+output "smoke_access_client_id" {
+  description = "Cloudflare service-token client ID for the read-only API smoke identity."
+  value       = cloudflare_zero_trust_access_service_token.smoke.client_id
+}
+
+output "smoke_access_client_secret" {
+  description = "Cloudflare smoke service-token secret; copy directly into the GitHub production environment secret."
+  value       = cloudflare_zero_trust_access_service_token.smoke.client_secret
+  sensitive   = true
+}
+
 output "database_driver" {
   description = "Runtime database driver for API and migration tooling."
   value       = "data-api"

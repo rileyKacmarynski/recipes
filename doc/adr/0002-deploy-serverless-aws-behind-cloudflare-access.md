@@ -35,14 +35,14 @@ Deployment automation refinements:
 - Deploy configuration values that should not be visible in a public repository, such as the AWS deploy role ARN, Terraform state bucket name, Cloudflare account/zone IDs, allowed Access email, and Cloudflare API token, are stored as GitHub environment secrets.
 - Production and future non-production environments should use separate AWS deploy roles and separate Terraform state keys, even if they share the same backend bucket.
 - The deployment workflow builds the API Lambda artifact before applying production Terraform, so Terraform creates or updates the Lambda with the real deployable code while also reconciling infrastructure drift before web artifact rollout.
-- Post-deploy smoke checks verify deployable artifacts through AWS-controlled paths, such as direct Lambda `/health` invocation, rather than treating Cloudflare Access-protected public URLs as unauthenticated smoke-test targets.
+- Post-deploy smoke tests retain direct Lambda `/health` invocation and add an authenticated public `GET /recipes` request through Cloudflare and Lambda to verify the database path. Public Access-protected routes are not anonymous smoke-test targets; ADR 0004 records the dedicated read-only service identity.
 
 ## Consequences
 
 This crosses the repository's previous no-infrastructure boundary, so deployment work should stay tightly scoped to the production serverless path.
 
-Cloudflare Access protects both hostnames at the edge, but API-side Cloudflare Access JWT verification is still required as follow-up hardening. Until then, disabling API Gateway's default endpoint reduces accidental bypass paths but is not a complete application-layer authorization model.
+Cloudflare Access protects both hostnames at the edge. The API now also validates Access JWT signatures, issuer, and audience. ADR 0004 adds explicit service-identity authorization for production smoke tests; disabling API Gateway's default endpoint is defense in depth, not a replacement for those checks.
 
 Terraform now becomes part of the repo's maintained surface. Backend bootstrap, production infrastructure, and operator documentation must be kept understandable for a small single-owner project.
 
-GitHub Actions now receives production infrastructure deployment permissions. Database infrastructure, mature release governance, and PR-required deployment policy remain out of scope until there is a concrete need.
+GitHub Actions receives production infrastructure deployment permissions. ADR 0003 subsequently introduced database infrastructure. Reviewed saved-plan deployment and deterministic pipeline inspection are tracked in issues #14 and #28; the current workflow does not yet implement that approval boundary.

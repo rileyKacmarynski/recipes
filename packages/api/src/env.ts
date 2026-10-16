@@ -4,6 +4,7 @@ const envSchema = z
   .looseObject({
     CLOUDFLARE_ACCESS_AUD: z.string().min(1).optional(),
     CLOUDFLARE_ACCESS_TEAM_DOMAIN: z.string().min(1).optional(),
+    CLOUDFLARE_SMOKE_CLIENT_ID: z.string().min(1).optional(),
     DATABASE_DRIVER: z.enum(['postgres', 'data-api']).optional(),
     DATABASE_NAME: z.string().min(1).optional(),
     DATABASE_RESOURCE_ARN: z.string().min(1).optional(),

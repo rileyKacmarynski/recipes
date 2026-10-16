@@ -43,6 +43,13 @@ export function createApp({ env, authProvider, recipes }: AppOptions) {
         return c.json({ error: 'Unauthenticated' }, 401)
       }
 
+      if (
+        identity.provider === 'cloudflare-access-service' &&
+        !(c.req.method === 'GET' && c.req.path === '/recipes')
+      ) {
+        return c.json({ error: 'Forbidden' }, 403)
+      }
+
       c.set('identity', identity)
 
       await next()
@@ -53,6 +60,10 @@ export function createApp({ env, authProvider, recipes }: AppOptions) {
 
       if (!identity) {
         return c.json({ error: 'Unauthenticated' }, 401)
+      }
+
+      if (identity.provider === 'cloudflare-access-service') {
+        return c.json({ error: 'Forbidden' }, 403)
       }
 
       return c.json({ identity })
