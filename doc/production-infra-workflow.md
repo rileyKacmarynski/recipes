@@ -8,7 +8,7 @@ own automatic apply. The authoritative saved-plan → human approval → exact-p
 apply workflow is planned in issue #14; read-only pipeline monitoring and evidence
 collection are planned in #28. Neither is implemented yet.
 
-The existing local script is a legacy preview aid with a hard-coded backend and
+The older `scripts/prod-infra.sh` is a legacy preview aid with a hard-coded backend and
 limited inspection rules, not the complete account/workspace/policy verification
 contract proposed in #14. Check its configuration and findings manually. For
 current infrastructure prerequisites and service-token provisioning, use the
@@ -16,28 +16,105 @@ current infrastructure prerequisites and service-token provisioning, use the
 
 ## Local plan preview
 
-Run the existing infrastructure script from the repository root for local production Terraform plan review:
+Run the interactive, human-operated plan script from the repository root:
 
 ```sh
-bash scripts/prod-infra.sh preflight &&
-  bash scripts/prod-infra.sh plan &&
-  bash scripts/prod-infra.sh inspect-plan &&
-  bash scripts/prod-infra.sh report
+bash scripts/plan-prod.sh
+# Optional explicit var files, in precedence order:
+bash scripts/plan-prod.sh --var-file /path/to/production.tfvars --var-file /path/to/overrides.tfvars.json
 ```
 
-These commands run preflight checks, create a saved Terraform plan, inspect the plan for risky changes, then write a local report. Each command runs only if the previous command succeeds. They do not apply infrastructure changes; `.github/workflows/deploy.yml` applies production Terraform after checks pass.
+The script packages the current Lambda source, confirms your backend/AWS identity,
+initializes Terraform without upgrading provider locks, validates configuration,
+confirms the workspace, creates a saved plan, and writes a value-redacted report.
+It has no apply operation and never pushes, deploys, or changes GitHub secrets.
 
-Required local environment:
+Terraform loads its normal local `terraform.tfvars`/`*.auto.tfvars` files and
+`TF_VAR_*` environment values. Explicit `--var-file` arguments take precedence in
+the order supplied. The freshly packaged Lambda path and checksum are passed in
+a temporary JSON var file last, so the plan always uses that build. Other required
+Terraform inputs are prompted for by Terraform itself; they are not persisted to
+your configuration files. Do not put Cloudflare management credentials in tfvars.
 
-- `CLOUDFLARE_API_TOKEN`
+`CLOUDFLARE_API_TOKEN` is used from the calling terminal or requested with hidden
+input. It stays in the script's process environment and is not saved into a var
+file, dotenv file, or GitHub secret. The parent terminal's exported variables are
+unchanged when the script exits. If you exported the token yourself, remove it
+from that terminal afterward with `unset CLOUDFLARE_API_TOKEN`.
+
+Backend settings are resolved from `TF_BACKEND_BUCKET` (or
+`TF_VAR_terraform_state_bucket`) and `TF_BACKEND_PROFILE`/`AWS_PROFILE`/
+`TF_VAR_aws_profile`, then the initialized S3 backend metadata, then prompts. The
+backend bucket is not hard-coded. An empty profile uses the default AWS credential
+chain. An expired SSO session stops before planning; run `aws sso login --profile
+recipes-admin` yourself and retry. Optionally set `AWS_EXPECTED_ACCOUNT_ID` to
+reject a different backend/preflight identity before continuing. Provider
+authentication remains controlled by Terraform configuration and may differ from
+backend/preflight authentication; inspect it yourself.
+
+If initialization reports **Backend configuration changed**, do not blindly
+migrate state. Terraform also reports this when authentication settings such as
+an explicit profile differ from cached initialization. After verifying that the
+bucket, key, region, and workspace mapping still point at the same existing state,
+run:
+
+```sh
+bash scripts/plan-prod.sh --reconfigure-backend
+```
+
+This option requires an extra confirmation and passes `-reconfigure` to init,
+resetting local backend metadata without migrating remote state. It refuses a
+different cached bucket; you must still verify the key/region/workspace mapping
+against configuration yourself. It never uses `-migrate-state` and is not a
+backend migration tool. Ordinary runs do not bypass Terraform's change warning.
+
+Each run creates a private, gitignored directory under `.local/infra-plan/`:
+
+- **Share only `report.md` or `report.json` with the agent.** These contain actions,
+  changed top-level attribute names, redacted resource addresses, and review
+  findings—not attribute/output values or provider diagnostics. JSON includes
+  the source commit/dirty flag and a checksum of the saved plan.
+- **Keep `plan.tfplan` and raw `*.log` files private.** Terraform output appears in
+  your terminal and raw logs can contain secret-bearing diagnostics. Inspect them
+  yourself if a stage fails. The report intentionally cannot expose every detail
+  needed for a complete security review.
+- Temporary raw plan JSON, artifact-input JSON, and AWS identity JSON are removed
+  on normal completion, failure, or ordinary interruption. The binary plan and
+  raw logs are retained for your review; abrupt process termination may bypass
+  cleanup, so the entire directory remains private.
+
+The script creates files with restrictive permissions and disables inherited
+Terraform debug logging. This is **not an agent sandbox**: another process running
+as your macOS user can still read private files or invoke credential lookup tools.
+Run it yourself in a credential-bearing terminal; agents should consume only the
+sanitized report, not execute the credential-bearing workflow or inspect raw plans.
+
+A report is not approval. Unknown values, Access changes, replacements, exposed
+endpoints, and selected other risks are flagged, but full policy coverage and the
+authoritative saved-plan approval/apply flow remain work under #14. Terraform
+exit codes 0 (no changes) and 2 (changes) both produce reports; errors stop without
+producing a success report. Nothing is applied.
+
+Test the dependency-free report helper with `pnpm test:infra`. These tests are also
+included in the root `pnpm test` and `pnpm test:unit` commands. The older
+`scripts/prod-infra.sh` remains a legacy preview tool; prefer the interactive script
+above for this human-run/report-only workflow.
+
+### Existing Terraform configuration
+
+Supply these Terraform settings through standard var files or `TF_VAR_*`
+environment variables; missing required values are prompted for during planning.
+The provider token is separate, and the new script generates artifact inputs:
+
+- `CLOUDFLARE_API_TOKEN`, provider environment only; prompted with hidden input when missing
 - `TF_VAR_cloudflare_account_id`
 - `TF_VAR_cloudflare_zone_id`
 - `TF_VAR_access_allowed_email`
 - `TF_VAR_cloudflare_access_team_domain`
 - `TF_VAR_github_oidc_subject`
 - `TF_VAR_terraform_state_bucket`
-- `TF_VAR_api_lambda_zip_path` and `TF_VAR_api_lambda_source_code_hash`, from a packaged Lambda artifact
-- `TF_VAR_aws_profile`, optional, defaults to `recipes-admin`
+- `TF_VAR_api_lambda_zip_path` and `TF_VAR_api_lambda_source_code_hash`, supplied automatically by the new script from its packaged Lambda artifact
+- `TF_VAR_aws_profile`, optional; null uses the provider's default credential chain (the existing local configuration may set `recipes-admin`)
 - `TF_VAR_aws_region`, optional, defaults to `us-east-1`
 
 The script does not store AWS access keys. Production automation should inject secrets through the runner environment and use the standard AWS credential chain or GitHub OIDC.
@@ -75,4 +152,4 @@ workflow artifacts:
 - `infra/terraform/prod/prod-outputs.env`
 - `infra/terraform/prod/prod-report.txt`
 
-This local script is for infrastructure plan review. Do not use it for production deployment; GitHub Actions applies production Terraform and deploys built application artifacts.
+These local scripts are for infrastructure plan review. Do not use them for production deployment; GitHub Actions applies production Terraform and deploys built application artifacts.
