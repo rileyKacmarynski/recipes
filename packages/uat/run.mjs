@@ -8,6 +8,7 @@ import { chromium } from '@playwright/test'
 import { z } from 'zod'
 import { verifyArtifacts } from './artifacts.mjs'
 import { serveFrontend } from './server.mjs'
+import { cleanEnvironment, sandboxCommand } from '../../scripts/local-loop/sandbox.mjs'
 
 const supplied = process.argv[2]
 const artifacts = supplied ? resolve(supplied) : undefined
@@ -57,9 +58,26 @@ process.on('SIGINT', interrupt)
 process.on('SIGTERM', interrupt)
 
 function launch(args, env, name, timeout = 60_000) {
-  const child = spawn(process.execPath, args, {
+  const isolated = process.env.UAT_SANDBOX === '1' && ['api', 'migrations'].includes(name)
+  const scratch = process.env.UAT_SANDBOX_SCRATCH
+  if (isolated && !scratch)
+    throw new Error('UAT_SANDBOX_SCRATCH is required for isolated candidates')
+  const [executable, parameters] = isolated
+    ? sandboxCommand(process.execPath, args, {
+        readable: [artifacts, dirname(process.execPath)],
+        writable: [scratch],
+        databasePort: Number(new URL(env.DATABASE_URL).port),
+        listen: name === 'api',
+      })
+    : [process.execPath, args]
+  const child = spawn(executable, parameters, {
     // Deliberately do not inherit database, auth, cloud, or Node injection settings.
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env },
+    env: {
+      ...(isolated
+        ? cleanEnvironment(scratch)
+        : { PATH: process.env.PATH, HOME: process.env.HOME }),
+      ...env,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: process.platform !== 'win32',
   })
@@ -160,6 +178,7 @@ try {
     DATABASE_URL: container.getConnectionUri(),
     WEB_ORIGIN: 'http://localhost',
     API_PORT: '0',
+    API_HOST: '127.0.0.1',
   }
   await completed(
     launch(

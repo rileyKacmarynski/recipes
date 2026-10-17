@@ -19,6 +19,7 @@ serve(
   {
     fetch: app.fetch,
     port,
+    hostname: process.env.API_HOST ?? '::',
   },
   (info) => {
     console.log(`API listening on http://localhost:${info.port}`)

@@ -155,6 +155,18 @@ the acceptance contract. See [ADR 0007](doc/adr/0007-separate-local-artifact-pro
 Production credentials, deployment/CI gates, and agent orchestration are outside
 this local workflow.
 
+### Local agent reviews and bounded feedback
+
+`pnpm loop <approved-run-config.json>` adds independent code/security reviews,
+optional architecture review, artifact UAT, and an acceptance verifier. Use
+`mode: "verify"` after implementing collaboratively: no implementation agent, source
+edits, or automatic repairs. `mode: "implement"` permits bounded repairs through an
+explicit source-file authorization. Both modes end with evidence for human approval.
+Models are configurable per role. The default uses ChatGPT OAuth with token budgets;
+paid API/provider fallback is rejected, and subscription dollars are reported as unpriced.
+See [the local loop guide](docs/local-loop.md) for macOS isolation, OpenCode/provider
+prerequisites, explicit contract/config inputs, limits and opt-in exercises.
+
 ## Development Notes
 
 - `pnpm dev` starts the frontend and backend concurrently.

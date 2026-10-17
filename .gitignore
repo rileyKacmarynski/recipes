@@ -33,3 +33,4 @@ infra/terraform/prod/prod-report.txt
 .local/infra-plan/
 .local/deploy/
 .local/uat/
+.local/loop/

@@ -12,7 +12,9 @@ const exec = promisify(execFile)
 const runner = fileURLToPath(new URL('./run.mjs', import.meta.url))
 
 async function workspace() {
-  const directory = fileURLToPath(new URL('../../.local/uat/checks/', import.meta.url))
+  const directory =
+    process.env.UAT_CHECKS_DIRECTORY ??
+    fileURLToPath(new URL('../../.local/uat/checks/', import.meta.url))
   await mkdir(directory, { recursive: true })
   return mkdtemp(resolve(directory, 'contract-'))
 }

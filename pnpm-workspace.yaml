@@ -6,3 +6,8 @@ allowBuilds:
   esbuild: true
   protobufjs: false
   ssh2: false
+
+minimumReleaseAgeExclude:
+  - '@opencode/client@2.0.32'
+  - '@opencode/protocol@2.0.32'
+  - '@opencode/schema@2.0.32'
