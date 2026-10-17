@@ -170,6 +170,30 @@ jobs:
           terraform -chdir="$TF_DIR" output -json >.local/deploy/outputs.private.json 2>.local/deploy/outputs.private.log
           node scripts/verify-production.ts outputs
 
+      - name: Wait for database auto-resume
+        id: database_ready
+        timeout-minutes: 3
+        run: |
+          umask 077
+          error_file=.local/deploy/database-ready.private.log
+          for attempt in {1..12}; do
+            if AWS_MAX_ATTEMPTS=1 aws rds-data execute-statement \
+              --resource-arn "$DATABASE_RESOURCE_ARN" \
+              --secret-arn "$DATABASE_SECRET_ARN" \
+              --database "$DATABASE_NAME" \
+              --sql 'SELECT 1' >/dev/null 2>"$error_file"; then
+              exit 0
+            fi
+            if ! grep -q 'DatabaseResumingException' "$error_file"; then
+              printf 'Database readiness failed for a reason other than auto-resume; diagnostics remain private.\n' >&2
+              exit 1
+            fi
+            printf 'Database is resuming (attempt %s/12); waiting 5 seconds.\n' "$attempt"
+            sleep 5
+          done
+          printf 'Database did not finish resuming within the readiness window.\n' >&2
+          exit 1
+
       - name: Run database migrations
         id: migrations
         run: pnpm db:migrate
@@ -306,7 +330,7 @@ jobs:
             const fs = require('node:fs');
             fs.mkdirSync('.local/deploy', { recursive: true, mode: 0o700 });
             const steps = JSON.parse(process.env.STEP_OUTCOMES);
-            const required = ['plan', 'apply', 'terraform_outputs', 'migrations', 'lambda', 'web', 'cloudfront', 'health', 'recipes', 'infrastructure'];
+            const required = ['plan', 'apply', 'terraform_outputs', 'database_ready', 'migrations', 'lambda', 'web', 'cloudfront', 'health', 'recipes', 'infrastructure'];
             const checks = required.map(name => ({ name, status: steps[name]?.outcome ?? 'skipped' }));
             const manifest = fs.existsSync('.local/deploy/manifest.json') ? JSON.parse(fs.readFileSync('.local/deploy/manifest.json', 'utf8')) : null;
             const report = {

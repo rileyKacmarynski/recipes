@@ -435,3 +435,57 @@ test('local calls and feature refs are refused; local inspection is never the Ac
     'local-preview',
   )
 })
+
+test('database readiness retries only auto-resume with SELECT 1 and does not retry migration SQL', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'recipes-database-readiness-test-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  mkdirSync(join(directory, 'bin'))
+  mkdirSync(join(directory, '.local/deploy'), { recursive: true })
+  const workflow = readFileSync('.github/workflows/deploy.yml', 'utf8')
+  const block = workflow.match(
+    /      - name: Wait for database auto-resume\n[\s\S]*?        run: \|\n([\s\S]*?)(?=\n      - name:)/,
+  )?.[1]
+  assert.ok(block)
+  const script = block
+    .split('\n')
+    .map((line) => line.replace(/^          /, ''))
+    .join('\n')
+  const calls = join(directory, 'calls')
+  writeFileSync(
+    join(directory, 'bin/aws'),
+    `#!/bin/bash
+printf '%s\\n' "$*" >> "$CALLS"
+count=$(wc -l < "$CALLS")
+if [[ "$MODE" == denied ]]; then printf 'AccessDenied SECRET_DIAGNOSTIC' >&2; exit 1; fi
+if [[ "$MODE" == never || "$count" -lt 3 ]]; then printf 'DatabaseResumingException SECRET_DIAGNOSTIC' >&2; exit 1; fi
+exit 0\n`,
+    { mode: 0o700 },
+  )
+  writeFileSync(join(directory, 'bin/sleep'), '#!/bin/bash\nexit 0\n', { mode: 0o700 })
+  for (const [mode, status, count] of [
+    ['resuming', 0, 3],
+    ['denied', 1, 1],
+    ['never', 1, 12],
+  ] as const) {
+    writeFileSync(calls, '')
+    const result = spawnSync('bash', ['-e', '-c', script], {
+      cwd: directory,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${join(directory, 'bin')}:${process.env.PATH}`,
+        MODE: mode,
+        CALLS: calls,
+        DATABASE_RESOURCE_ARN: 'fixture-cluster',
+        DATABASE_SECRET_ARN: 'fixture-secret',
+        DATABASE_NAME: 'fixture-database',
+      },
+    })
+    assert.equal(result.status, status)
+    const commands = readFileSync(calls, 'utf8').trim().split('\n')
+    assert.equal(commands.length, count)
+    assert.ok(commands.every((command) => command.includes('--sql SELECT 1')))
+    assert.ok(!result.stdout.includes('SECRET_DIAGNOSTIC'))
+    assert.ok(!result.stderr.includes('SECRET_DIAGNOSTIC'))
+  }
+})

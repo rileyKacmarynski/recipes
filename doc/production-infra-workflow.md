@@ -144,6 +144,10 @@ different cached bucket and is not a state migration tool.
 
 ## Verification and evidence
 
+Before migrations, a bounded read-only Data API `SELECT 1` probe waits for Aurora
+auto-resume. Only `DatabaseResumingException` is retried; other failures stop
+immediately, and migration SQL itself is never blindly retried.
+
 Both existing smoke tests must execute and pass: direct Lambda `/health` and
 authenticated public DB-backed `/recipes`. Empty lists are valid; the smoke tests
 do not write data. Additional checks are limited to CloudFront readiness, HTTPS and
