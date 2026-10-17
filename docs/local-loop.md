@@ -1,8 +1,9 @@
 # Local implementation–verification loop
 
 `pnpm loop <approved-run-config.json>` runs one explicitly requested local workflow.
-It never selects an issue, commits, pushes, deploys, closes issues, creates worktrees,
-or changes an acceptance contract. A passing result is **a proposal for human approval**.
+Each new `implement` slice gets a fresh branch and worktree before any agent starts.
+It never selects an issue, commits, pushes, deploys, closes issues, or changes an
+acceptance contract. A passing result is **a proposal for human approval**.
 
 ## Two ways to work
 
@@ -41,8 +42,11 @@ execution evidence, not a waiver from this policy.
 
 - macOS with working `/usr/bin/sandbox-exec`, Node 24+, and the pinned pnpm dependencies.
   Other platforms fail closed. Seatbelt is a platform dependency, not a portable VM.
-- `pnpm install --frozen-lockfile` beforehand. The loop never installs/repairs dependencies;
-  pnpm's automatic installation before scripts is disabled in isolated commands.
+- Populate the pnpm store with `pnpm install --frozen-lockfile` beforehand. New
+  implementation worktrees get a bounded offline, frozen-lockfile install with
+  lifecycle scripts and pnpmfile hooks disabled. Missing cached dependencies stop
+  setup without a network fallback. Verify mode uses already-installed dependencies;
+  automatic installation before isolated check/build scripts remains disabled.
 - A running, authenticated OpenCode V2 **2.0.x** service (`opencode service status`).
   The client is pinned to `@opencode/client` 2.0.32; permission evaluation and failed-idle
   lifecycle handling were exercised against service 2.0.30. It does not start or stop
@@ -97,6 +101,31 @@ directory. Run from the checkout containing the coordinator:
 ```sh
 pnpm loop .local/loop/approved-run.json
 ```
+
+### Branch and worktree ownership
+
+`implement` requires a clean source checkout (tracked and untracked changes are
+checked; ignored local inputs are allowed). It pins the source's exact current
+`HEAD`, creates a unique `loop/<issue-slug>-<uuid>` branch and a Git worktree under
+`<source>/.worktrees/<issue-slug>-<uuid>`, and leaves the source branch, index and
+working files in place. It never stashes or silently drops dirty work. Preserve
+and review that work first, or use `verify` to inspect an existing dirty candidate.
+
+The approved contract and normalized configuration are snapshotted into the new
+worktree's `.local/loop/bootstrap/`; evidence paths are rebased into that worktree.
+`workspace.json` records the source branch, exact base commit, new branch and
+worktree path. Startup prints the new branch/worktree. All implementation, checks,
+reviews, builds, UAT and bounded repairs use that workspace; a repair does not
+create another branch. A new implementation invocation always creates a new slice.
+
+Branches, worktrees, bootstrap inputs/install logs and loop evidence are retained
+on both success and failure for human review. Setup failure never falls back to
+editing the source checkout or starts an agent. Inspect and remove finished
+worktrees/branches explicitly; the loop does not automatically delete them.
+
+`verify` checks its supplied existing candidate in place, including uncommitted
+changes, without creating a new slice. Work performed **outside** the loop stays
+on the current branch/worktree unless you explicitly choose otherwise.
 
 The evidence directory must not exist and must be under `<workspace>/.local/loop/`.
 The contract/config must be outside that new directory. Review source includes dirty

@@ -6,6 +6,15 @@ judgment, not scheduling or authority. A verify-only mode supports collaborative
 implementation followed by independent code/security and optional architecture review,
 artifact UAT and acceptance verification, without an implementation agent or repairs.
 
+Each new implementation slice starts in a fresh Git worktree and unique branch
+from the clean source checkout's pinned HEAD. The source checkout is left in place;
+dirty work is refused rather than stashed or silently omitted. Approved inputs are
+snapshotted and evidence is rebased into the new workspace. Dependencies are
+provisioned offline with a frozen lockfile and lifecycle/pnpmfile hooks disabled;
+setup failure stops before agents. Repairs reuse that slice, and branches/worktrees
+remain for human review on every outcome. Verify-only inspects its supplied existing
+candidate in place. Work outside the loop uses the current branch/worktree.
+
 Pre-UAT code/security/architecture judgment lives in role skills supplied explicitly
 by the coordinator. Code review shares its Standards/Spec guide with the interactive
 review skill, without importing that skill's scheduling procedure. Review packets

@@ -16,7 +16,7 @@
     "build:uat": "node packages/uat/build.mjs",
     "uat": "node packages/uat/run.mjs",
     "loop": "node scripts/local-loop.ts",
-    "test:loop": "node --test scripts/local-loop.test.ts scripts/local-loop-budget.test.ts",
+    "test:loop": "node --test scripts/local-loop.test.ts scripts/local-loop-budget.test.ts scripts/local-loop-workspace.test.ts",
     "test": "pnpm test:infra && pnpm -r test",
     "test:infra": "node --test scripts/*.test.mjs scripts/*.test.ts",
     "infra:preview": "bash scripts/plan-prod.sh",

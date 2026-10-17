@@ -27,7 +27,7 @@
 - Keep durable architecture/product decisions in `doc/adr` as numbered Markdown ADRs.
 - The README explicitly keeps auth, database/ORM, Docker, AWS/Terraform, CI/CD, hooks, AI libraries, uploads, and broad env management out until there is a concrete need.
 - TypeScript owns application state and business logic; Python is only for extraction or ML tasks if those are added later.
-- Do not create Git worktrees unless the user asks for one.
+- Start each new implementation-loop slice in a fresh branch and worktree; repairs stay in that slice. Verify-only runs inspect the supplied candidate. Outside the loop, use the current branch/worktree. See `docs/local-loop.md` for startup and retention behavior.
 
 ## Agent skills
 

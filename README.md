@@ -165,6 +165,9 @@ optional architecture review, artifact UAT, and an acceptance verifier. Use
 `mode: "verify"` after implementing collaboratively: no implementation agent, source
 edits, or automatic repairs. `mode: "implement"` permits bounded repairs through an
 explicit source-file authorization. Both modes end with evidence for human approval.
+Each new implementation slice gets its own branch/worktree; repairs stay in that
+slice. Verify-only inspects the existing candidate in place. Work outside the loop
+uses the current branch/worktree.
 Models are configurable per role. The default uses ChatGPT OAuth with token budgets;
 paid API/provider fallback is rejected, and subscription dollars are reported as unpriced.
 See [the local loop guide](docs/local-loop.md) for macOS isolation, OpenCode/provider

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { configSchema } from './local-loop/contracts.ts'
 import { runLoop } from './local-loop/coordinator.ts'
 import { localRuntime } from './local-loop/runtime.ts'
+import { prepareLoopWorkspace } from './local-loop/workspace.ts'
 
 async function main() {
   if (process.argv.length !== 3) throw new Error('Usage: pnpm loop <approved-run-config.json>')
@@ -19,8 +20,17 @@ async function main() {
   process.on('SIGINT', interrupt)
   process.on('SIGTERM', interrupt)
   try {
-    const report = await runLoop(config, localRuntime(config, file), controller.signal)
-    console.log(`${report.outcome}: ${report.reason}\nReport: ${config.evidence}/report.md`)
+    const prepared = await prepareLoopWorkspace(config, file, controller.signal)
+    if (prepared.workspace)
+      console.log(`Branch: ${prepared.workspace.branch}\nWorktree: ${prepared.workspace.path}`)
+    const report = await runLoop(
+      prepared.config,
+      localRuntime(prepared.config, prepared.configFile),
+      controller.signal,
+    )
+    console.log(
+      `${report.outcome}: ${report.reason}\nWorkspace: ${prepared.config.workspace}\nReport: ${prepared.config.evidence}/report.md`,
+    )
     process.exitCode = report.outcome === 'proposed-pass' ? 0 : 1
   } finally {
     process.removeListener('SIGINT', interrupt)
