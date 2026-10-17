@@ -73,13 +73,58 @@ function actionsOnly() {
 }
 
 function terraform(args: string[], log: string, detailedExit = false) {
+  phase = `terraform-${args[0]}`
   const descriptor = openSync(resolve(directory, log), 'w', 0o600)
   try {
     const result = spawnSync('terraform', [`-chdir=${tf}`, ...args], {
       stdio: ['ignore', descriptor, descriptor],
     })
-    if (result.error || (result.status !== 0 && !(detailedExit && result.status === 2)))
-      throw new DeploymentBlocked('Terraform command failed; diagnostics remain private')
+    if (result.error || (result.status !== 0 && !(detailedExit && result.status === 2))) {
+      const diagnostics = readFileSync(resolve(directory, log), 'utf8')
+      // Classify known failures; never copy untrusted diagnostic payloads into public logs.
+      const reasons: [RegExp, string][] = [
+        [/AccessDenied|Forbidden|StatusCode: 403/i, 'AWS backend access was denied'],
+        [
+          /No valid credential|ExpiredToken|InvalidClientTokenId/i,
+          'AWS credentials are missing or expired',
+        ],
+        [
+          /NoSuchBucket|InvalidBucketName|PermanentRedirect|Invalid AWS Region/i,
+          'Check the S3 backend bucket and region',
+        ],
+        [/Backend configuration changed/i, 'Backend configuration changed'],
+        [/Failed to get existing workspaces/i, 'Could not read workspaces from the S3 backend'],
+        [
+          /checksum|dependency lock file|Provider dependency changes detected/i,
+          'Provider lock/checksum validation failed',
+        ],
+        [
+          /Failed to query available provider packages|Failed to install provider/i,
+          'Provider registry lookup or installation failed',
+        ],
+        [/Module not installed/i, 'Terraform modules are not installed'],
+        [
+          /Unsupported argument|Invalid backend configuration argument/i,
+          'Terraform configuration or arguments are unsupported',
+        ],
+        [/Error acquiring the state lock/i, 'Terraform could not acquire the state lock'],
+      ]
+      const reason =
+        result.error && 'code' in result.error && result.error.code === 'ENOENT'
+          ? 'Terraform executable was not found'
+          : (reasons.find(([pattern]) => pattern.test(diagnostics))?.[1] ??
+            'See private diagnostics')
+      const files =
+        args[0] === 'fmt'
+          ? diagnostics
+              .split('\n')
+              .filter((line) => /^[A-Za-z0-9_./-]+\.tf$/.test(line))
+              .slice(0, 5)
+          : []
+      throw new DeploymentBlocked(
+        `terraform ${args[0]} failed (exit ${result.status ?? 'unknown'}): ${reason}${files.length ? `; formatting: ${files.join(', ')}` : ''}. Raw diagnostics remain private`,
+      )
+    }
   } finally {
     closeSync(descriptor)
   }

@@ -315,6 +315,9 @@ test('one job plans and verifies its builds without GitHub approval APIs, transf
     'terraform',
     `printf '%s\\n' "$*" >> "$CALLS"
 case "$*" in
+  *' fmt '*) exit 0 ;;
+  *' init '*) if [ "\${FAIL_INIT:-}" = 1 ]; then printf 'Error: AccessDenied SECRET_PROVIDER_PAYLOAD'; exit 1; fi; exit 0 ;;
+  *' validate '*) exit 0 ;;
   'version -json') printf '${JSON.stringify({ terraform_version: terraformVersion })}' ;;
   *' workspace show') printf default ;;
   *' plan '*) printf 'PRIVATE_PLAN' > "$GITHUB_WORKSPACE/.local/deploy/plan.tfplan"; exit 2 ;;
@@ -396,6 +399,13 @@ esac`,
   )
   assert.ok(!readFileSync(calls, 'utf8').includes('apply'))
   assert.ok(!readFileSync(join(directory, 'summary'), 'utf8').includes('PRIVATE_PLAN'))
+  assert.equal(execute('init').status, 0)
+  const failedInit = execute('init', { FAIL_INIT: '1' })
+  assert.equal(failedInit.status, 1)
+  assert.match(failedInit.stderr, /terraform-init/)
+  assert.match(failedInit.stderr, /AWS backend access was denied/)
+  assert.ok(!failedInit.stderr.includes('SECRET_PROVIDER_PAYLOAD'))
+  assert.ok(!failedInit.stdout.includes('SECRET_PROVIDER_PAYLOAD'))
 })
 test('local calls and feature refs are refused; local inspection is never the Actions plan', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'recipes-inspect-test-'))
