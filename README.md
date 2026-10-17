@@ -62,6 +62,9 @@ pnpm test:e2e:headed
 pnpm test:e2e:ui
 ```
 
+For exact-commit production monitoring without deploying or rerunning anything,
+see [read-only deployment inspection](doc/deployment-inspection.md) (`pnpm deploy:inspect`).
+
 ### Database-backed tests
 
 `pnpm test` and `pnpm test:unit` skip database-backed suites by default and do not

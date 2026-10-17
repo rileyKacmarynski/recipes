@@ -22,6 +22,7 @@
     "infra:preview": "bash scripts/plan-prod.sh",
     "infra:inspect": "node scripts/infra-plan.mjs inspect",
     "infra:review": "node scripts/infra-plan.mjs review",
+    "deploy:inspect": "node scripts/inspect-deployment.ts",
     "typecheck:infra": "tsc -p scripts/tsconfig.json",
     "test:unit": "pnpm test:infra && pnpm -r --if-present test:unit",
     "test:e2e": "pnpm --filter @recipes/web test:e2e",

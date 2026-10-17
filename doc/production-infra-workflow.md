@@ -172,7 +172,8 @@ temporary identities, decoded plan JSON and artifact inputs are cleaned up on
 ordinary exit. Abrupt termination can bypass cleanup. Permissions are not an agent
 sandbox: processes as your OS user may access files or credentials.
 
-#28 can consume these schema-version-1 reports without approving or mutating.
+The [read-only deployment inspector](deployment-inspection.md) consumes these
+schema-version-1 reports for an exact commit/run/attempt without approving or mutating.
 #24's built-artifact black-box UAT is separate. Future required PR checks should
 reuse those acceptance commands and gate merge, not add another production approval.
 No new PR gate is implemented here. #22's smoke checks were previously verified;

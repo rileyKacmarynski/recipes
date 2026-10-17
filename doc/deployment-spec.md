@@ -5,7 +5,8 @@
 > [the Terraform operator guide](../infra/terraform/README.md) for the maintained
 > deployment/authentication and production smoke-test guidance. Reviewed saved-plan
 > deployment is documented in [the production workflow runbook](production-infra-workflow.md);
-> read-only pipeline monitoring remains #28. This historical document is not their implementation spec.
+> read-only pipeline monitoring is documented in [deployment inspection](deployment-inspection.md).
+> This historical document is not their implementation spec.
 
 ## Goal
 

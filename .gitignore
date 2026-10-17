@@ -34,3 +34,4 @@ infra/terraform/prod/prod-report.txt
 .local/deploy/
 .local/uat/
 .local/loop/
+.local/deployment-inspections/
