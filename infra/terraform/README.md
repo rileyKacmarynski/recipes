@@ -19,6 +19,16 @@ Future staging infrastructure should use a separate environment root, for exampl
 - Cloudflare Zero Trust organization with One-Time PIN configured manually
 - Cloudflare API token exported as `CLOUDFLARE_API_TOKEN`
 
+CI uses Linux amd64; local development may use macOS arm64. When changing provider
+selections, record both platforms' package checksums and commit the lockfile:
+
+```sh
+terraform -chdir=infra/terraform/prod providers lock -platform=linux_amd64 -platform=darwin_arm64
+```
+
+Actions initializes with `-lockfile=readonly`, so it cannot fill missing platform
+hashes on the runner. Provider versions are not upgraded by the command above.
+
 The production Cloudflare token needs permissions for:
 
 - Account / Access: Apps and Policies / Edit
