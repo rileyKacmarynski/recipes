@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
+import { checkPolicy } from './check-policy.ts'
 import {
   candidateSchema,
   commandSchema,
@@ -285,6 +286,8 @@ export async function runLoop(
               contract: report.contract,
               candidate: attempt.candidate,
               commands: attempt.commands,
+              reviews: attempt.reviews,
+              checkPolicy: checkPolicy(config.scenarios),
               uat,
             },
             signal,

@@ -10,6 +10,7 @@ import { LoopStop, type Runtime } from './coordinator.ts'
 import { type Attempt, type Config } from './contracts.ts'
 import { cleanEnvironment, sandboxCommand, validateSandbox } from './sandbox.mjs'
 import { createReviewHandoff, loadReviewGuidance, type ReviewGuidance } from './review-guidance.ts'
+import { checkPolicy } from './check-policy.ts'
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
 async function json(path: string, data: unknown) {
@@ -284,7 +285,7 @@ export function localRuntime(config: Config, configFile: string): Runtime {
       const roleInstructions =
         role === 'implementation'
           ? 'Implement only the approved contract. You have no tools. Return ONLY JSON {"status":"ready"|"needs-human","rationale":string,"files":[{"path":string,"content":string}]}. Files are full replacements of existing approved writable files, not patches. Do not edit tests, expectations, configuration, tools, or generated files. Ask for human input using needs-human if context or authorization is insufficient. Repair only failures attributable to the product; never weaken acceptance.'
-          : 'Independently assess the approved contract against the exact candidate and deterministic evidence. You have no tools. Return ONLY JSON {"decision":"approve"|"product-failure"|"uncertain"|"needs-human","findings":string[],"coveredScenarios":string[],"repairRationale":string}. Missing evidence, skipped checks, coverage gaps, ambiguous requirements or changes to acceptance require uncertainty/human input. Do not approve merely because tools are green. Machine failures cannot be overridden. Give actionable product-only repair rationale when justified; do not perform repairs. Binary attachments are retained but not supplied to you; do not claim to have inspected them.'
+          : 'Independently assess the approved application contract against the exact candidate and deterministic evidence. The coordinator owns authorization and review infrastructure, not an additional acceptance target. Completed pre-UAT reviews, including their session IDs and full validated findings, are supplied in input.reviews; assess that evidence without claiming to have inspected omitted reviewer source packets. Use checkPolicy to distinguish known optional unit-suite exclusions from skipped required checks. An excluded suite did not run and is not a pass; a contract explicitly requiring it still needs evidence. Missing evidence, skipped required checks, coverage gaps, ambiguous requirements or changes to acceptance require uncertainty/human input. You have no tools. Return ONLY JSON {"decision":"approve"|"product-failure"|"uncertain"|"needs-human","findings":string[],"coveredScenarios":string[],"repairRationale":string}. Do not approve merely because tools are green. Machine failures cannot be overridden. Give actionable product-only repair rationale when justified; do not perform repairs. Binary attachments are retained but not supplied to you; do not claim to have inspected them.'
       const sources: Record<string, string> = { ...context }
       for (const path of config.writableFiles)
         sources[path] = await readFile(await safeFile(root, path), 'utf8')
@@ -324,6 +325,7 @@ export function localRuntime(config: Config, configFile: string): Runtime {
         approvedContract,
         adrs,
         requiredScenarios: config.scenarios,
+        ...(role !== 'verification' ? { checkPolicy: checkPolicy(config.scenarios) } : {}),
         ...(reviewer ?? { roleInstructions }),
         responseTarget: {
           tokens: config.budget.targetOutputTokensPerCall,

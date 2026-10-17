@@ -19,6 +19,14 @@ Separate fresh sessions prevent sharing the implementer's conversation. These ga
 run before UAT; a fresh acceptance verifier reviews the exact candidate/evidence after
 UAT. Neither reviewers nor verifiers can override machine failures or change acceptance.
 
+Review scope is the approved candidate behavior. The loop is trusted infrastructure
+unless a task explicitly changes or audits it; application reviewers do not re-audit
+the loop's enforcement or demand authorization transcripts. The final acceptance
+packet includes the current attempt's complete validated reviews and session identities,
+not merely their existence in local report files. A source-backed check policy describes
+the ordinary unit command's named opt-in exclusions without treating them as passes or
+waiving explicitly required checks. Required UAT scenarios remain mandatory and unskipped.
+
 OpenCode permissions cannot constrain separately launched candidate code. We therefore
 require validated macOS Seatbelt isolation for check/build processes and the existing
 UAT launcher's candidate API/migration children. This preserves ADR 0007's build/UAT

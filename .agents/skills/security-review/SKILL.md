@@ -8,14 +8,29 @@ description: Perform an independent adversarial security review of supplied chan
 Review the changed behavior against the approved threat model. The caller owns
 execution, permissions and scheduling; this skill supplies a read-only assessment.
 
+## Scope first
+
+Review the application behavior covered by the approved contract and candidate.
+The local loop is trusted review infrastructure, not an additional review target.
+Its coordinator owns run authorization, permissions, isolation and protected-input
+checks. Missing loop source, sandbox probes, permission evidence or an approval
+transcript is not an application finding and must not block application review.
+Review loop internals only when the approved task explicitly changes or audits them;
+their presence in supplied context or ADRs alone does not expand the scope.
+
+In the local loop, this is a pre-UAT security gate. Judge in-scope security behavior using source and
+available checks; build/UAT evidence belongs to the later acceptance gate. Identify
+untested product-security claims precisely, without demanding later-stage evidence
+as a prerequisite for this review. Escalate genuine in-scope defects or material
+missing application context; leave infrastructure checks to the coordinator.
+
 ## Trace authority
 
 1. Read applicable current repo ADRs in the supplied `doc/adr/` packet, including
-   status/supersession. For the local loop, [ADR 0007](../../../doc/adr/0007-separate-local-artifact-production-from-black-box-acceptance.md)
-   defines trusted-artifact UAT fidelity and [ADR 0008](../../../doc/adr/0008-bound-local-agent-work-with-tool-denial-and-process-isolation.md)
-   defines tool denial, process isolation, protected inputs and human approval.
-   For auth/deployment changes, also use the relevant auth/deployment ADRs rather
-   than importing assumptions from the local loop. Cite the specific ADR decision
+   status/supersession. Select decisions that govern the in-scope application
+   behavior; ADRs about the review harness describe caller responsibilities, not
+   extra application acceptance criteria. For auth/deployment changes, use the
+   relevant auth/deployment ADRs. Cite the specific ADR decision
    for a finding or proposed trust-model change.
 2. Identify the assets, actors, entry points, credentials and privileged side effects
    touched by the change. State which host/runtime/dependencies the approved model
@@ -42,7 +57,7 @@ the approved threat model. Call out a newly introduced trust assumption for huma
 
 ## Evaluate controls and evidence
 
-For a claimed permission boundary, identify the enforcement mechanism and the exact
+For an in-scope product permission boundary, identify the enforcement mechanism and the exact
 resource/action it constrains. Compare prompts/checksums with actual permission or
 isolation controls. Check default behavior, bypass paths, exception scope and negative
 evidence; a passing happy path does not establish denial of an unauthorized action.
@@ -56,7 +71,7 @@ recommendations for the caller/human, never claims that an attack test ran.
 
 Use the caller's output schema. Approve only when no supported blocking finding
 remains and the supplied evidence supports the relevant controls. Material missing
-context or uncertain enforcement means uncertainty. A defect within the approved
+application context or uncertain product enforcement means uncertainty. A defect within the approved
 scope can carry a repair rationale; changing the threat model, acceptance inputs or
 privilege grants requires human input. Green machine results never erase a finding
 or authorize weakening an existing control.

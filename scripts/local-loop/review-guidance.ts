@@ -27,7 +27,7 @@ export function createReviewHandoff(
   if (!references || reviewGuidanceFiles[role].some((path) => !references[path]?.trim()))
     throw new Error(`Missing review guidance for ${role}`)
   return {
-    roleInstructions: `You are an independent ${role}. Apply the supplied reviewGuidance and repo ADRs to the approved contract and source/evidence packet. Return ONLY JSON matching outputSchema. Tools are unavailable; use the supplied evidence.`,
+    roleInstructions: `You are an independent ${role}. Apply the supplied reviewGuidance and applicable repo ADRs to the approved contract and source/evidence packet. Review only the approved task's candidate behavior; the coordinator owns run authorization and infrastructure checks. Review loop internals only if the approved task explicitly changes or audits them, not merely because loop ADRs or context are supplied. This is a pre-UAT gate; build/UAT evidence is evaluated later. Return ONLY JSON matching outputSchema. Tools are unavailable; use the supplied evidence.`,
     reviewGuidance: references,
     outputSchema: z.toJSONSchema(reviewSchema),
   }

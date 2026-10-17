@@ -21,6 +21,22 @@ unrestricted attack-script execution. They can question correctness, abuse paths
 architecture and coverage. Missing executable checks or changed expectations require
 human approval, not an agent inventing a new acceptance gate during the run.
 
+Reviews target the approved application/task, not the loop running them. The
+coordinator owns authorization and enforcement checks; reviewers do not require loop
+source, permission/sandbox probes or approval transcripts to review the application.
+Loop internals are review targets only for tasks explicitly changing or auditing them.
+Pre-UAT reviewers assess the evidence available at that stage; final build/UAT
+coverage is the later acceptance verifier's responsibility.
+
+The final verifier receives the current attempt's full validated review results and
+session IDs alongside command outcomes and exact-candidate UAT evidence. `checkPolicy`
+explains the existing unit command's named opt-in exclusions: database integration,
+runner hardening and recursive loop integration tests, plus the nested sandbox
+self-test. These exclusions are not reported as passes. Unexplained skips and any
+skipped explicitly required contract check still require human input; every required
+UAT scenario must run and pass. A contract requiring an excluded suite needs separate
+execution evidence, not a waiver from this policy.
+
 ## Prerequisites and invocation
 
 - macOS with working `/usr/bin/sandbox-exec`, Node 24+, and the pinned pnpm dependencies.
@@ -52,7 +68,7 @@ For a verification of the existing recipe contract, create an approved config su
   "billing": "chatgpt-subscription",
   "models": {
     "implementation": "openai/gpt-6.1-sol#medium",
-    "code-review": "openai/gpt-5.3-codex-spark#medium",
+    "code-review": "openai/gpt-6.1-sol#medium",
     "security-review": "openai/gpt-6.1-sol#medium",
     "architecture-review": "openai/gpt-6.1-sol#medium",
     "verification": "openai/gpt-6-luna#low"
@@ -102,7 +118,7 @@ against the local catalog on 2026-10-17, not a benchmarked guarantee of review q
   "billing": "chatgpt-subscription",
   "models": {
     "implementation": "openai/gpt-6.1-sol#medium",
-    "code-review": "openai/gpt-5.3-codex-spark#medium",
+    "code-review": "openai/gpt-6.1-sol#medium",
     "security-review": "openai/gpt-6.1-sol#medium",
     "architecture-review": "openai/gpt-6.1-sol#medium",
     "verification": "openai/gpt-6-luna#low"
@@ -126,13 +142,13 @@ not block a subscription model and is never interpreted as free API usage. There
 implicit model fallback, premium escalation, or change to tools/permissions by model tier.
 Model identities are checked against the server's session responses and recorded in reports.
 
-| Role                    | Subscription model                    | Starting policy                                                     |
-| ----------------------- | ------------------------------------- | ------------------------------------------------------------------- |
-| Implementation          | GPT-6.1 Sol, medium reasoning         | Capable coder when autonomous implementation is explicitly selected |
-| Code review             | GPT-5.3 Codex Spark, medium reasoning | Separate coding-focused model/session                               |
-| Security review         | GPT-6.1 Sol, medium reasoning         | Favor review quality without max reasoning by default               |
-| Architecture review     | GPT-6.1 Sol, medium reasoning         | Optional; disabled by default                                       |
-| Acceptance verification | GPT-6 Luna, low reasoning             | Lower reasoning effort for the bounded evidence packet              |
+| Role                    | Subscription model            | Starting policy                                                     |
+| ----------------------- | ----------------------------- | ------------------------------------------------------------------- |
+| Implementation          | GPT-6.1 Sol, medium reasoning | Capable coder when autonomous implementation is explicitly selected |
+| Code review             | GPT-6.1 Sol, medium reasoning | Fresh independent session; the same model can serve different roles |
+| Security review         | GPT-6.1 Sol, medium reasoning | Favor review quality without max reasoning by default               |
+| Architecture review     | GPT-6.1 Sol, medium reasoning | Optional; disabled by default                                       |
+| Acceptance verification | GPT-6 Luna, low reasoning     | Lower reasoning effort for the bounded evidence packet              |
 
 This is a starting preset, not a repo benchmark or a claim about relative subscription
 quota multipliers. All roles share the connected ChatGPT plan's limits. Use verify-only

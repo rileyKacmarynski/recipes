@@ -85,6 +85,16 @@ test('review handoffs supply role-specific skills, shared code judgment and the 
     assert.deepEqual(handoff.outputSchema.required, ['decision', 'findings', 'repairRationale'])
     assert.equal('permissions' in handoff, false)
     assert.equal('commands' in handoff, false)
+    assert.match(handoff.roleInstructions, /Review only the approved task's candidate behavior/)
+    assert.match(
+      handoff.roleInstructions,
+      /coordinator owns run authorization and infrastructure checks/,
+    )
+    assert.match(
+      handoff.roleInstructions,
+      /only if the approved task explicitly changes or audits them/,
+    )
+    assert.match(handoff.roleInstructions, /pre-UAT gate; build\/UAT evidence is evaluated later/)
   }
   assert.equal('.agents/skills/code-review/SKILL.md' in guidance.byRole['code-review'], false)
   assert.ok('.agents/skills/code-review/REVIEW-GUIDANCE.md' in guidance.byRole['code-review'])
@@ -124,9 +134,58 @@ test('missing or empty review skill files stop loading instead of falling back t
   await assert.rejects(loadReviewGuidance(root), /Review guidance is empty/)
 })
 
+test('final acceptance receives completed current-attempt reviews and the scoped unit-test skip policy', async () => {
+  const f = fixture({
+    agent(role, _number, input) {
+      if (role !== 'verification')
+        return { ...reviewApprove, findings: [`${role} reviewed the recipe snapshot`] }
+      const handoff = input as {
+        reviews: Attempt['reviews']
+        checkPolicy: {
+          requiredUatScenarios: string[]
+          unitTests: {
+            knownExclusions: { source: string; suite: string; reason: string }[]
+            unknownSkips: string
+          }
+        }
+      }
+      assert.deepEqual(handoff.reviews, [
+        {
+          role: 'code-review',
+          session: 'ses_1',
+          result: { ...reviewApprove, findings: ['code-review reviewed the recipe snapshot'] },
+        },
+        {
+          role: 'security-review',
+          session: 'ses_2',
+          result: { ...reviewApprove, findings: ['security-review reviewed the recipe snapshot'] },
+        },
+      ])
+      assert.deepEqual(handoff.checkPolicy.requiredUatScenarios, ['empty', 'create'])
+      assert.deepEqual(
+        handoff.checkPolicy.unitTests.knownExclusions.map((entry) => entry.source),
+        [
+          'scripts/local-loop.test.ts',
+          'scripts/local-loop.test.ts',
+          'packages/uat/runner.test.mjs',
+          'packages/core/src/recipes.test.ts',
+          'packages/api/src/app.test.ts',
+        ],
+      )
+      assert.ok(
+        handoff.checkPolicy.unitTests.knownExclusions.every((entry) => entry.suite && entry.reason),
+      )
+      assert.match(handoff.checkPolicy.unitTests.unknownSkips, /uncertainty/)
+      return approve
+    },
+  })
+  const report = await runLoop(config({ mode: 'verify', writableFiles: [] }), f.runtime)
+  assert.equal(report.outcome, 'proposed-pass', report.reason)
+})
+
 function fixture(
   options: {
-    agent?: (role: Role, attempt: number) => unknown
+    agent?: (role: Role, attempt: number, input: unknown) => unknown
     productFailure?: (number: number) => boolean
     uat?: (attempt: Attempt) => unknown
     commandFailure?: string
@@ -159,13 +218,13 @@ function fixture(
       sessions.push({ role, id })
       return id
     },
-    async agent(_session, role, _input, signal) {
+    async agent(_session, role, input, signal) {
       if (options.interrupt) {
         options.interrupt.abort()
         signal.throwIfAborted()
       }
       if (options.timeout) throw new LoopStop('limit-exhausted', 'Agent timed out')
-      if (options.agent) return options.agent(role, number)
+      if (options.agent) return options.agent(role, number, input)
       return role === 'implementation'
         ? { status: 'ready', rationale: 'Authorized source change', files: [] }
         : role === 'verification'
@@ -264,8 +323,20 @@ test('complete success requires deterministic checks, adversarial reviews and a 
 })
 
 test('product failure repairs in the same implementation session, preserving candidates and fresh reviews', async () => {
-  const f = fixture({ productFailure: (number) => number === 1 })
-  const report = await runLoop(config(), f.runtime)
+  const handoffs: { reviews: Attempt['reviews']; candidate: Attempt['candidate'] }[] = []
+  const f = fixture({
+    productFailure: (number) => number === 1,
+    agent(role, number, input) {
+      if (role === 'implementation')
+        return { status: 'ready', rationale: 'Repair recipe creation', files: [] }
+      if (role === 'verification') {
+        handoffs.push(structuredClone(input) as (typeof handoffs)[number])
+        return number === 1 ? rejected : approve
+      }
+      return { ...reviewApprove, findings: [`${role} evaluated attempt ${number}`] }
+    },
+  })
+  const report = await runLoop(config({ architectureReview: true }), f.runtime)
   assert.equal(report.outcome, 'proposed-pass')
   assert.equal(report.attempts.length, 2)
   assert.equal(f.sessions.filter((session) => session.role === 'implementation').length, 1)
@@ -273,6 +344,25 @@ test('product failure repairs in the same implementation session, preserving can
   assert.equal(report.attempts[0]!.candidate?.sha256, '1'.repeat(64))
   assert.equal(report.finalCandidate?.sha256, '2'.repeat(64))
   assert.match(report.attempts[0]!.repairRationale!, /recipe creation/)
+  assert.equal(handoffs.length, 2)
+  for (const [index, handoff] of handoffs.entries()) {
+    assert.deepEqual(handoff.reviews, report.attempts[index]!.reviews)
+    assert.deepEqual(handoff.candidate, report.attempts[index]!.candidate)
+    assert.deepEqual(
+      handoff.reviews.map((review) => review.role),
+      ['code-review', 'security-review', 'architecture-review'],
+    )
+    assert.ok(
+      handoff.reviews.every((review) =>
+        review.result?.findings[0]?.endsWith(`attempt ${index + 1}`),
+      ),
+    )
+  }
+  assert.ok(
+    handoffs[1]!.reviews.every(
+      (review) => !handoffs[0]!.reviews.some((previous) => previous.session === review.session),
+    ),
+  )
 })
 
 test('adversarial rejection prevents building/UAT, then fresh reviews gate the repair', async () => {
