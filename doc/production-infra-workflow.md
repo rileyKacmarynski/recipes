@@ -1,262 +1,186 @@
 # Production Infra Workflow
 
-## What this guarantees
+## Approval and execution
 
-Local previews are read-only and **never authorize deployment**. On a push to
-`main` (or manual dispatch selecting `main`), Actions:
+**Review changes locally or approve the PR before pushing/merging to `main`.**
+There is no second manual approval inside Actions. Push/merge to `main` authorizes
+the automatic deployment workflow; a manual dispatch must also select `main`.
+The scripts do not attempt to prove that an offline review happened.
 
-1. Runs checks and builds the API at the pinned commit.
-2. Plans with read-only credentials, inspects the saved plan, and builds the web
-   using the API URL from that plan. It encrypts the exact plan and both builds.
-3. Waits for GitHub's protected `production` environment approval.
-4. Verifies the approved handoff's run/attempt, commit, target and file hashes.
-5. Applies that saved plan without replanning, migrates the database, deploys the
-   saved builds and invalidates CloudFront.
-6. Runs smoke tests and a small set of deployment checks, then retains safe reports.
+```text
+Local preview / PR review
+  → push or merge to main
+  → Actions checks
+  → build API → save/inspect Terraform plan → build web
+  → apply that exact saved plan automatically
+  → migrate DB → deploy those builds → smoke/verification checks → reports
+```
 
-This is a contract for the current application, not a comprehensive infrastructure
-verifier. New resources, hostnames, certificate names, DNS-only records and renamed
-modules do not require a second inventory. An unrelated merge to `main` does not
-invalidate an otherwise matching approved plan. Terraform itself rejects a saved
-plan whose underlying state has changed.
+The Actions plan is freshly generated for the pinned commit and current state.
+It can differ from a local preview after state or merge changes. The local binary
+is never uploaded or applied; approval concerns the proposed source changes, not
+a claim that the local and Actions binary plans are identical.
 
-Workflow-wide `production-deploy` concurrency covers planning, approval, mutation
-and verification. Terraform locks protect individual operations, not the entire
-review window. Coordinate any separately authorized operator mutation with this
-workflow. GitHub can replace an older pending run with a newer pending run.
+Planning and applying run in **one job on one runner** with the existing production
+credentials. The saved plan/builds never cross a job boundary. Therefore there is
+no encrypted artifact handoff, extra key pair, private S3 transfer, planning role,
+planning environment or custom GitHub protection-rule API check.
 
-## Code and commands
+The workflow-wide `production-deploy` concurrency group covers checks through
+verification (`cancel-in-progress: false`). Terraform operation locks are not a
+reservation against separately authorized manual mutation. Coordinate operator
+changes; Terraform rejects stale saved plans without an automatic replan fallback.
 
-| Piece                                     | Responsibility                                                                              |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `.github/workflows/deploy.yml`            | Job order, approval, credentials, concurrency, apply/deploy commands and evidence retention |
-| `scripts/production-deployment.ts`        | Actions-only initialization, authoritative planning, build/handoff integrity checks         |
-| `scripts/deployment-policy.ts`            | Small pure policy checker and value-redacted report                                         |
-| `scripts/deployment-handoff.ts`           | Encrypted transfer, expiry and matching plan/build identities                               |
-| `scripts/verify-production.ts`            | Safe output handling and minimal post-deploy checks                                         |
-| `scripts/plan-prod.sh` / `infra-plan.mjs` | Local preview and private inspection; no apply or approval                                  |
+## Code ownership
 
-Operator entrypoints:
+| Piece                                     | Responsibility                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------ |
+| `.github/workflows/deploy.yml`            | Trigger/order, credentials, saved-plan apply, artifact deployment and reports  |
+| `scripts/production-deployment.ts`        | Actions-only initialization, planning/builds, target and file-integrity checks |
+| `scripts/deployment-policy.ts`            | Small pure exposure checker and redacted report                                |
+| `scripts/verify-production.ts`            | Safe output handling and minimal post-deploy checks                            |
+| `scripts/plan-prod.sh` / `infra-plan.mjs` | Local preview, redacted inspection and private display; never apply            |
+
+Actions verifies the pinned checkout, Terraform/provider/configuration selections,
+backend/workspace and STS account. The expected AWS account comes from the existing
+`AWS_DEPLOY_ROLE_ARN`, not another repository variable. It records safe file hashes
+in `manifest.json` and checks that the target, saved plan and builds are unchanged
+immediately before apply. It does not rebuild or generate another plan afterward.
+
+## Existing production configuration
+
+Continue using the existing `production` GitHub environment and its secrets:
+
+- `AWS_DEPLOY_ROLE_ARN`
+- `TERRAFORM_STATE_BUCKET`
+- `ACCESS_ALLOWED_EMAIL`
+- `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`
+- `CLOUDFLARE_ACCESS_TEAM_DOMAIN`
+- `CLOUDFLARE_API_TOKEN` with the existing DNS/Access edit permissions
+- `GH_OIDC_SUBJECT`, the actual configured subject, including ID-qualified formats
+- `CF_ACCESS_SMOKE_CLIENT_ID`, `CF_ACCESS_SMOKE_CLIENT_SECRET`
+
+No additional keys, role, token or environment are required for planning. An empty
+`production-plan` environment auto-created by the old failed workflow is unused.
+Old planning/encryption settings, if separately provisioned, are no longer consumed.
+Do not delete cloud resources blindly; review any cleanup through Terraform.
+
+Use `production` without required reviewers/wait timers for this automatic policy.
+If someone configures native GitHub environment approval, GitHub itself will still
+pause the job; the code does not bypass it. Restricting that environment's branches
+to `main` is recommended and does not require manual approval.
+
+Keep production credentials environment-scoped, not available to local UAT or
+untrusted PR jobs. The workflow only grants id-token/write to deployment, uses AWS
+OIDC for the existing deployment role, and does not request GitHub approval APIs.
+The current role's broad PowerUserAccess/IAMFullAccess permissions are unchanged;
+this is not a least-privilege claim. AWS backend authentication and AWS/Cloudflare
+provider authentication remain distinct.
+
+Region/workspace/tool version are configured in the workflow (`us-east-1`,
+`default`, and `TERRAFORM_VERSION` today); backend key/region live in Terraform.
+The API zip is built before planning, and the web build uses the API URL from
+that saved plan. See the [Terraform operator guide](../infra/terraform/README.md)
+for original backend, role and service-token provisioning.
+
+## Policy scope
+
+This is a small deployment contract, not a complete infrastructure verifier.
+Known public database exposure, enabled API Gateway default endpoints and
+unencrypted Aurora storage block the plan. Malformed/incomplete input fails closed.
+
+Destruction/replacement, Access/IAM edits, DNS/CAA, hostname/routing and disabling
+deletion protection are informational `REVIEW` findings. They do not pause Actions.
+Unknown security settings remain unresolved findings; generated IDs/ARNs do not
+produce warnings. There is no resource-address or hostname inventory to maintain.
+The report is not proof of safety; human source review belongs locally/in the PR.
+
+## Local preview and inspection
+
+Run these yourself in your credential-bearing terminal, from the repo root:
 
 ```sh
 pnpm infra:preview
-# Inspect or privately review the newest local preview — no paths:
-pnpm infra:inspect
-pnpm infra:review
-# Optional standard var files, in precedence order:
+pnpm infra:inspect  # Redacted inspection of the newest local saved plan
+pnpm infra:review   # Full Terraform text for that local plan, in your private terminal
+```
+
+No paths or variables are needed to inspect/review the plan just created. Both
+select the newest run in `.local/infra-plan/`, never silently fall back after a
+failed newest run, and neither rebuilds, refreshes, approves or applies anything.
+Inspection prints its run/hash and saves `policy.json`/`policy.md` alongside the
+binary. Full review may expose sensitive values and refuses non-terminal output.
+`review` means "show the saved local plan", not an agent review or approval token.
+
+Advanced inputs remain optional:
+
+```sh
 bash scripts/plan-prod.sh --var-file /private/path/production.tfvars
-# Advanced: inspect a specific existing private JSON file instead:
 PLAN_JSON_PATH=/private/path/plan.json pnpm infra:inspect
 ```
 
-`infra:inspect` automatically selects the newest run under `.local/infra-plan/`,
-reads its saved binary plan without planning again, prints a redacted inspection,
-and saves `policy.json`/`policy.md` alongside that plan. It identifies the run and
-plan hash. It never silently falls back to an older preview if the newest run
-failed. `infra:review` opens that same local binary plan as full Terraform text in
-your private terminal; raw review refuses non-terminal output because it may
-contain secrets. Neither command rebuilds, refreshes, approves or applies anything.
+Explicit JSON inspection is labeled local preview and writes under `.local/deploy/`.
+The retired `prod-infra.sh` and Actions download/decrypt `REVIEW_*` inputs are not used.
+Actions plan reports are visible in GitHub; reviewing them is not a deployment gate.
 
-The optional `PLAN_JSON_PATH` override still accepts an explicitly selected JSON
-file and writes reports under `.local/deploy/`. Exit 1 means a missing/unfinished
-preview, unreadable/malformed input, or a known exposure violation. A local
-report or binary plan cannot be passed to Actions for apply. The older
-`scripts/prod-infra.sh` has been removed.
+Use Node 24+, installed dependencies, pnpm, Git, AWS CLI and Terraform supported by
+the configuration. The preview packages Lambda, confirms backend/provider identities
+independently, initializes with provider locks unchanged, validates and confirms the
+backend key/region/workspace before planning. It never changes GitHub settings/secrets.
 
-## What policy blocks, and what you review
+Normal tfvars/`TF_VAR_*` inputs and explicit var files are accepted. The final
+temporary inputs pin the fresh Lambda path/hash and the explicitly selected provider
+profile/region. `TF_PROVIDER_PROFILE` selects a profile (empty means the default
+chain); otherwise the wizard prompts. `AWS_EXPECTED_REGION` defaults to `us-east-1`.
+Backend and provider accounts are shown separately, not forced to match. Optional
+`AWS_EXPECTED_ACCOUNT_ID` checks the local backend/preflight identity.
 
-The only infrastructure-value hard blocks are known public database exposure,
-enabled API Gateway default endpoints, and unencrypted Aurora storage. Malformed
-or incomplete plan input also fails closed.
+Backend settings come from `TF_BACKEND_BUCKET` / `TF_BACKEND_PROFILE`, relevant
+AWS/Terraform settings, cached metadata or prompts. The Cloudflare management token
+uses the terminal environment or hidden input and is not persisted. Expired AWS
+sessions stop the preview; authenticate yourself and retry. If only backend auth
+changed, verify the state location and use `--reconfigure-backend`; it refuses a
+different cached bucket and is not a state migration tool.
 
-Destruction/replacement, Access/IAM edits, DNS/CAA and hostname/routing changes,
-and disabling database deletion protection are **review findings**, not forbidden
-architecture changes. The report lists all managed resource actions. Unknown
-security settings remain unresolved findings; ordinary generated IDs/ARNs do not
-produce warnings. No report claims that the plan is proven safe.
+## Verification and evidence
 
-There is no hard-coded resource list, hostname/SAN/alias list, or required CAA
-resource address. Terraform configuration and human review own those decisions.
+Both existing smoke tests must execute and pass: direct Lambda `/health` and
+authenticated public DB-backed `/recipes`. Empty lists are valid; the smoke tests
+do not write data. Additional checks are limited to CloudFront readiness, HTTPS and
+unauthenticated access behavior for Terraform's web/API URLs, disabled API default
+endpoints and matching Lambda code. They allow valid login redirects or 401/403,
+multiple API mappings and IPv4/IPv6, with three attempts five seconds apart and
+safe failure reasons. There is no second infrastructure inventory.
 
-## One-time operator prerequisites
+Safe reports are retained 14 days, keyed by run/attempt:
 
-The public repository supports GitHub environment approval. At implementation
-time, `production` had no protection rules, repository-level secrets were empty,
-and existing mutation/smoke secrets were scoped to `production`. `production-plan`
-did not exist. No settings, keys or cloud resources were changed by the agent.
+- `plan-report-<runId>-<attempt>`: policy Markdown/JSON, source/target and build hashes.
+- `deployment-verification-<runId>-<attempt>`: required step outcomes, check details,
+  saved-plan hash and evidence references.
+- `deployment-result-<runId>-<attempt>`: overall checks/deployment outcomes, including
+  failed/skipped jobs. Missing, cancelled or skipped checks are not success.
 
-### GitHub environments
+Binary plans, builds, raw plan JSON, state, outputs and diagnostics are **not**
+uploaded. The runner's private plan/outputs/logs are removed in always-run cleanup.
+Local material is ignored under `.local/infra-plan/` and `.local/deploy/`; share only
+redacted reports with agents. Local preview logs/binaries remain for private use;
+temporary identities, decoded plan JSON and artifact inputs are cleaned up on
+ordinary exit. Abrupt termination can bypass cleanup. Permissions are not an agent
+sandbox: processes as your OS user may access files or credentials.
 
-Configure **Settings → Environments → production**:
+#28 can consume these schema-version-1 reports without approving or mutating.
+#24's built-artifact black-box UAT is separate. Future required PR checks should
+reuse those acceptance commands and gate merge, not add another production approval.
+No new PR gate is implemented here. #22's smoke checks were previously verified;
+the revised same-job deployment workflow still needs a live run.
 
-- Required reviewer: initially `rileyKacmarynski`, with self-review allowed, as
-  agreed. You can add reviewers or disable self-review later without changing code.
-- Disable administrator bypass.
-- Selected deployment branches: exactly the `main` branch, not a tag.
+## Failure and recovery
 
-Create `production-plan`, also restricted to `main`, without an approval gate.
-Runtime checks enforce the approval/branch protections, not exact reviewer names
-or membership. Agents must never approve through UI, CLI or API on your behalf.
-
-Keep mutation credentials only in protected `production`, never at repository
-scope or in `production-plan`. `GITHUB_TOKEN` needs contents/read and actions/read;
-only planning/deployment jobs get id-token/write. Approval is enforced by GitHub,
-not a caller-provided boolean or dispatch input.
-
-### Planning and deployment credentials
-
-Provision the separate planning role as a **separately authorized operator bootstrap**:
-
-- Terraform definitions: `infra/terraform/prod/github-actions.tf`.
-- Output: `github_actions_plan_role_arn`; put it in `production-plan` as `AWS_PLAN_ROLE_ARN`.
-- Trust the configured GitHub subject for `production-plan`. Terraform derives it
-  from the supplied deployment subject by changing only the environment suffix,
-  preserving any repository/owner IDs.
-- AWS ReadOnlyAccess plus backend state read and writes only to the state lock object.
-- `CLOUDFLARE_PLAN_API_TOKEN`: production account/zone-scoped DNS and Access
-  applications/policies/service-token **read** permissions. Never reuse the edit token.
-
-Copy the non-mutation Terraform inputs into `production-plan`:
-`TERRAFORM_STATE_BUCKET`, `ACCESS_ALLOWED_EMAIL`, `CLOUDFLARE_ACCOUNT_ID`,
-`CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_ACCESS_TEAM_DOMAIN`, and `GH_OIDC_SUBJECT`.
-Use the actual configured GitHub OIDC subject for `GH_OIDC_SUBJECT`, including
-ID-qualified subjects such as `repo:owner@id/repo@id:environment:production`.
-It identifies the deployment environment, not the planning environment. Subjects
-are opaque configuration values: the scripts do not reconstruct or validate their
-format from repository names. IAM uses the supplied value verbatim.
-
-Keep these existing secrets in `production`: `AWS_DEPLOY_ROLE_ARN`,
-`TERRAFORM_STATE_BUCKET`, `CLOUDFLARE_API_TOKEN` (edit token),
-`CLOUDFLARE_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_SMOKE_CLIENT_ID`, and
-`CF_ACCESS_SMOKE_CLIENT_SECRET`. Retain the other existing Terraform settings there
-as needed for operator tooling.
-
-Set repository variable `PRODUCTION_AWS_ACCOUNT_ID` to the intended account.
-Region/workspace are configured once in the workflow (`us-east-1` / `default`
-today); state key/backend region live in Terraform's backend configuration.
-Actions checks STS identity and configured backend/workspace before planning, then
-requires those identities to match at apply. Provider profile is null in Actions,
-so AWS provider credentials use the assumed role rather than a local profile.
-
-The deployment role's environment-scoped OIDC trust is defined/enforced by
-Terraform and AWS. Operator provisioning must preserve that isolation; there is
-no custom runtime IAM-policy interpreter. The existing deployment role remains
-broad (PowerUserAccess and IAMFullAccess plus app/migration policies); this change
-does not claim least privilege. Backend AWS authentication and provider
-authentication (AWS/Cloudflare) remain distinct.
-
-### Handoff encryption
-
-Generate the RSA key yourself outside the checkout in a private terminal:
-
-```sh
-umask 077
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out deployment-private.pem
-openssl pkey -in deployment-private.pem -pubout -out deployment-public.pem
-gh variable set DEPLOY_PLAN_PUBLIC_KEY < deployment-public.pem
-gh secret set DEPLOY_PLAN_PRIVATE_KEY --env production < deployment-private.pem
-```
-
-Keep the private key in your password manager; remove the temporary key file
-yourself after confirming storage. Never send it to an agent or put it at repo/
-planning-environment scope. Rotate both keys together and generate new handoffs.
-
-The bundle uses AES-256-GCM with an RSA-OAEP-SHA256-wrapped random key. Only
-ciphertext is uploaded, retained for one day. Plans expire after **one day**, matching
-the handoff retention rather than imposing a separate two-hour review deadline.
-Identity and checksums bind the run/attempt, commit, backend/account/workspace,
-Terraform/configuration/provider selections, and every plan/build byte. Missing,
-expired or mismatched material never triggers a replacement plan after approval.
-
-This encrypted handoff is a repo-specific implementation, not a requirement for
-every Terraform project. Removing it requires alternative restricted storage:
-ordinary public artifacts are not appropriate for secret-bearing plans/state.
-
-## Local preview details
-
-Use Node 24+, installed workspace dependencies, pnpm, Git, AWS CLI and a Terraform
-version supported by the configuration. Actions pins its version once via
-`TERRAFORM_VERSION` in the workflow. The interactive wizard packages the current Lambda,
-confirms backend and provider identities independently, initializes without
-upgrading locks, validates, and confirms backend key/region/workspace before planning.
-It never applies, pushes, deploys or changes GitHub settings/secrets.
-
-Normal tfvars/`TF_VAR_*` inputs are accepted. Explicit var files win in their order;
-the final temporary input file pins the fresh Lambda path/hash and your explicitly
-selected provider profile/region. `TF_PROVIDER_PROFILE` can select a profile
-(empty means default chain); otherwise the wizard prompts. `AWS_EXPECTED_REGION`
-defaults to `us-east-1` and can select another intended region. Backend and provider
-accounts are shown separately, not required to be identical. An optional
-`AWS_EXPECTED_ACCOUNT_ID` checks the backend/preflight identity.
-
-Backend bucket/profile come from `TF_BACKEND_BUCKET` / `TF_BACKEND_PROFILE`, relevant
-AWS/Terraform environment settings, cached backend metadata, or prompts. The
-Cloudflare management token is taken from the terminal or hidden input and is not
-persisted. An expired AWS session stops the preview; authenticate yourself and retry.
-
-If only backend authentication changed, verify the state location and use
-`--reconfigure-backend`. It refuses a different cached bucket and is not a state
-migration tool. Never use migration/reconfiguration blindly to bypass a warning.
-
-Private runs live under ignored `.local/infra-plan/`; inspection material lives
-under ignored `.local/deploy/`. Share only value-redacted reports with agents.
-Raw binary plans, decoded JSON, state, outputs and diagnostics can contain secrets.
-Temporary plan JSON/artifact inputs/identities are removed on ordinary exit; raw
-logs and binary previews remain for your private inspection. Abrupt termination
-can bypass cleanup. Restrictive permissions are not an agent sandbox: processes
-running as your OS user may still access files/credentials.
-
-## Actions plan review stays in GitHub
-
-Open the Actions run and review its authoritative plan/policy summary, findings,
-commit, expiry and saved-plan hash. Approve or reject the waiting `production`
-deployment using GitHub's environment review UI. No local download, decryption,
-key entry or path copying is required. The encrypted artifact is a machine-to-machine
-handoff between Actions jobs, not an operator review command.
-
-`pnpm infra:review` is only for your local preview. The old `REVIEW_*` download/
-decrypt inputs are no longer supported. Agents consume only redacted reports and
-must never submit approval on your behalf.
-
-## Verification, evidence and recovery
-
-Both original smoke tests must execute and pass: direct-Lambda `/health` and
-authenticated public DB-backed `/recipes` through Cloudflare/API Gateway/Lambda.
-Empty recipe lists are valid; the tests do not write recipe data. #22 was deployed
-and verified before these workflow changes; the new workflow still needs setup
-and an approved live validation run.
-
-The additional verifier is intentionally small: CloudFront ready/enabled, HTTPS
-and unauthenticated access denial/login for the web/API URLs from Terraform,
-disabled API Gateway default endpoints, and exact deployed Lambda build hash.
-HTTPS exercises DNS (IPv4 or IPv6) and certificate validation. Access checks accept
-valid redirect statuses or 401/403, without requiring a particular Cloudflare
-header. Multiple API domain mappings are allowed. Checks retry at most three times,
-five seconds apart, recording attempts and safe failure reasons. There is no
-second hostname, CAA, Lambda-environment or database-topology inventory.
-
-Reports, retained 14 days and keyed by **run and attempt**:
-
-- `plan-review-<runId>-<attempt>`: policy Markdown/JSON and manifest; no raw values.
-- `deployment-verification-<runId>-<attempt>`: required step outcomes, individual
-  checks when executed, plan/handoff hashes and evidence references.
-- `deployment-result-<runId>-<attempt>`: stage outcomes even if planning fails or
-  deployment is skipped. Missing/cancelled/skipped checks are not success.
-
-These are schema-version-1 reports for #28's separate read-only monitor, not a
-permanent audit archive. Monitoring must not approve or mutate anything.
-
-Rerunning the workflow is allowed: its planning job creates a new attempt-specific
-plan/build handoff and deployment requires approval again. **Rerunning only apply
-cannot reuse a previous attempt's plan.** Rerun planning as well, or dispatch a
-new main run. A newer main commit alone does not require replanning; changed state,
-expiry, missing material, or identity/integrity failure does.
-
-On failure, fix the cause and create/review a fresh plan. Never regenerate after
-approval, edit checksums/expiry to force acceptance, or fall back to automatic
-unsaved apply. Partial deployment is not automatically rolled back. Coordinate
-separately authorized recovery, then replan against current state. A revert goes
-through the same plan/approval flow. Raw Terraform diagnostics remain private;
-only safe findings, stage/check identifiers and controlled failure reasons are logged.
+Rerun/dispatch the workflow on `main` after correcting the cause. Each deployment
+job starts with a fresh plan/build; it cannot fall back to an old plan or replan
+after an apply failure. Partial deployment is not automatically rolled back.
+Coordinate recovery, then replan against current state. A revert is reviewed and
+pushed/merged through the same automatic workflow. Native stale-plan rejection
+and file/target integrity failures stop before an unsafe fallback.
 
 Tests: `pnpm test:infra`, also included in `pnpm test` and `pnpm test:unit`.

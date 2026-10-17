@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { setTimeout } from 'node:timers/promises'
 import { z } from 'zod'
-import { sha256 } from './deployment-handoff.ts'
 
 const directory = '.local/deploy'
 const env = (name: string) => {
@@ -163,7 +163,7 @@ export async function verifyProduction(input: unknown, dependencies: Dependencie
       )
     expect(
       config.CodeSha256 === dependencies.lambdaCodeSha256,
-      'Deployed Lambda code does not match the reviewed build.',
+      'Deployed Lambda code does not match the planned build.',
     )
   })
   return { schemaVersion: 1, success: checks.every((check) => check.status === 'passed'), checks }
@@ -207,10 +207,9 @@ async function main() {
       aws,
       fetch,
       accessTeamDomain: env('CLOUDFLARE_ACCESS_TEAM_DOMAIN'),
-      lambdaCodeSha256: Buffer.from(
-        sha256(readFileSync('packages/api/dist/api-lambda.zip')),
-        'hex',
-      ).toString('base64'),
+      lambdaCodeSha256: createHash('sha256')
+        .update(readFileSync('packages/api/dist/api-lambda.zip'))
+        .digest('base64'),
       wait: () => setTimeout(5_000),
     })
     writeFileSync(

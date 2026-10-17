@@ -96,7 +96,7 @@ export function evaluatePlan(plan: Plan) {
     })),
     findings,
     disclaimer:
-      'No known exposure violations is not proof of correctness. Review the resource changes and unresolved security settings before approval.',
+      'No known exposure violations is not proof of correctness. Review changes locally or in the PR; runtime behavior is checked after deployment.',
   }
 }
 export function inspectPlan(input: unknown) {
@@ -107,7 +107,7 @@ export function renderPolicyReport(
   authority: 'actions-saved-plan' | 'local-preview',
 ) {
   return [
-    `# ${authority === 'actions-saved-plan' ? 'Authoritative Actions saved plan' : 'Local preview — NOT deployment approval'}`,
+    `# ${authority === 'actions-saved-plan' ? 'Authoritative Actions saved plan' : 'Local preview — not the Actions plan'}`,
     ...(report.previewRun
       ? [`Local preview: ${report.previewRun}`, `Saved plan SHA-256: ${report.planSha256}`]
       : []),
@@ -119,56 +119,4 @@ export function renderPolicyReport(
     ),
     '',
   ].join('\n')
-}
-
-const branchRestriction = z.object({
-  protected_branches: z.literal(false),
-  custom_branch_policies: z.literal(true),
-})
-export function assertPlanningProtection(input: unknown, branches: unknown) {
-  z.object({ deployment_branch_policy: branchRestriction }).parse(input)
-  const policies = z
-    .object({
-      branch_policies: z.array(z.object({ name: z.string(), type: z.string().optional() })),
-    })
-    .parse(branches)
-  if (
-    policies.branch_policies.length !== 1 ||
-    policies.branch_policies[0]?.name !== 'main' ||
-    ![undefined, 'branch'].includes(policies.branch_policies[0]?.type)
-  )
-    throw new Error('Production credentials must be restricted to main')
-}
-export function assertApprovalProtection(input: unknown, branches: unknown) {
-  assertPlanningProtection(input, branches)
-  const environment = z
-    .object({
-      can_admins_bypass: z.literal(false),
-      protection_rules: z.array(
-        z.object({
-          type: z.string(),
-          reviewers: z
-            .array(
-              z.object({
-                type: z.enum(['User', 'Team']),
-                reviewer: z.object({
-                  id: z.number().optional(),
-                  login: z.string().optional(),
-                  slug: z.string().optional(),
-                }),
-              }),
-            )
-            .optional(),
-        }),
-      ),
-    })
-    .parse(input)
-  if (
-    !environment.protection_rules.some(
-      (rule) =>
-        rule.type === 'required_reviewers' &&
-        rule.reviewers?.some(({ reviewer }) => reviewer.id || reviewer.login || reviewer.slug),
-    )
-  )
-    throw new Error('Production requires a configured human reviewer')
 }

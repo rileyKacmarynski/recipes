@@ -4,9 +4,10 @@ Date: 2026-10-15
 
 ## Status
 
-Accepted. Operator approval policy confirmed: rileyKacmarynski is the sole
-required reviewer and self-review is allowed. Environment/credential bootstrap
-and a live approved validation run remain required.
+Superseded by [ADR 0006](0006-apply-actions-plans-automatically-after-source-review.md)
+on 2026-10-17. The operator moved approval to local/source PR review and explicitly
+removed manual Actions approval. The design below records the earlier decision,
+not the current workflow.
 
 Scope refined on 2026-10-16 at the operator's request: keep the workflow small,
 without incidental inventory/topology blockers or an exhaustive verifier.

@@ -120,7 +120,7 @@ deployed and verified before the saved-plan workflow change.
 
 For a human-run local Terraform preview with hidden credential entry and an
 agent-readable sanitized report, run `bash scripts/plan-prod.sh`. It does not apply
-anything. See the [plan-preview runbook](doc/production-infra-workflow.md#local-preview-details)
+anything. See the [plan-preview runbook](doc/production-infra-workflow.md#local-preview-and-inspection)
 for var-file inputs, report locations, and secret-handling limits.
 
 After a local preview, no paths are needed:
@@ -130,12 +130,11 @@ pnpm infra:inspect  # Redacted inspection of the newest local saved plan
 pnpm infra:review   # Full private terminal review of that local plan
 ```
 
-Actions plans are reviewed and approved in GitHub, not on your local machine.
-
-Production deployment now separates the authoritative Actions saved plan from a
-required human environment approval and exact-plan apply. Before enabling it,
-complete the [environment, read-only planning credentials and encryption prerequisites](doc/production-infra-workflow.md#one-time-operator-prerequisites).
-The new workflow still needs a live approved validation run. Pipeline monitoring
+Review infrastructure changes locally or in the PR before pushing/merging to
+`main`. Actions then builds, saves/inspects a fresh Terraform plan and applies that
+exact file automatically in the same job—no manual Actions approval, plan transfer
+or extra encryption keys. See the [production workflow runbook](doc/production-infra-workflow.md).
+The revised workflow still needs a live validation run. Pipeline monitoring
 (#28) and built-artifact black-box UAT (#24) remain separate work.
 
 ## Current Scope

@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   readFileSync,
   writeFileSync,
@@ -10,23 +11,34 @@ import {
   rmSync,
   chmodSync,
 } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
-import {
-  inspectPlan,
-  assertApprovalProtection,
-  assertPlanningProtection,
-  renderPolicyReport,
-} from './deployment-policy.ts'
-import {
-  createManifest,
-  sealBundle,
-  openBundle,
-  identitySchema,
-  sha256,
-  assertFreshManifest,
-} from './deployment-handoff.ts'
+import { inspectPlan, renderPolicyReport } from './deployment-policy.ts'
+
+const digest = z.string().regex(/^[a-f0-9]{64}$/)
+const identitySchema = z.object({
+  repository: z.string(),
+  runId: z.string(),
+  runAttempt: z.string(),
+  commit: z.string(),
+  account: z.string().regex(/^\d{12}$/),
+  region: z.string(),
+  bucket: z.string(),
+  backendKey: z.string(),
+  workspace: z.string(),
+  workspacePath: z.string(),
+  terraformVersion: z.string(),
+  configurationSha256: digest,
+  providerLockSha256: digest,
+})
+const manifestSchema = z.object({
+  schemaVersion: z.literal(1),
+  identity: identitySchema,
+  createdAt: z.iso.datetime(),
+  files: z.record(z.string(), digest),
+})
+const sha256 = (value: string | Buffer) => createHash('sha256').update(value).digest('hex')
 
 const root = process.cwd()
 const directory = resolve(root, '.local/deploy')
@@ -120,32 +132,6 @@ export function createSavedPlan(): unknown {
   }
 }
 
-async function github(path: string) {
-  const response = await fetch(`https://api.github.com/repos/${env('GITHUB_REPOSITORY')}/${path}`, {
-    headers: {
-      Authorization: `Bearer ${env('GH_TOKEN')}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    signal: AbortSignal.timeout(30_000),
-  })
-  if (!response.ok)
-    throw new DeploymentBlocked(`GitHub approval checks unavailable (HTTP ${response.status})`)
-  return response.json() as Promise<unknown>
-}
-async function approval() {
-  phase = 'github-environment-api'
-  const [environment, branches, planningEnvironment, planningBranches] = await Promise.all([
-    github('environments/production'),
-    github('environments/production/deployment-branch-policies?per_page=100'),
-    github('environments/production-plan'),
-    github('environments/production-plan/deployment-branch-policies?per_page=100'),
-  ])
-  phase = 'production-required-reviewer-and-branch-protection'
-  assertApprovalProtection(environment, branches)
-  phase = 'planning-main-only-protection'
-  assertPlanningProtection(planningEnvironment, planningBranches)
-}
 function identity() {
   phase = 'exact-checkout-and-workspace-path'
   if (
@@ -161,8 +147,12 @@ function identity() {
   const account = z
     .object({ Account: z.string() })
     .parse(JSON.parse(run('aws', ['sts', 'get-caller-identity', '--output', 'json']))).Account
-  if (account !== env('AWS_EXPECTED_ACCOUNT_ID'))
-    throw new DeploymentBlocked('Unexpected AWS account')
+  // The existing deployment role identifies the intended account; no extra repo variable is needed.
+  const expectedAccount = z
+    .string()
+    .regex(/^\d{12}$/)
+    .parse(env('AWS_DEPLOY_ROLE_ARN').split(':')[4])
+  if (account !== expectedAccount) throw new DeploymentBlocked('Unexpected AWS account')
   phase = 'backend-region-key-and-workspace'
   const workspace = run('terraform', [`-chdir=${tf}`, 'workspace', 'show']).trim()
   if (workspace !== env('TF_WORKSPACE'))
@@ -230,6 +220,17 @@ function webFiles(path = 'packages/web/dist'): Record<string, Buffer> {
     }),
   )
 }
+function deploymentFiles() {
+  return Object.fromEntries(
+    Object.entries({
+      ...webFiles(),
+      '.local/deploy/plan.tfplan': readFileSync(resolve(directory, 'plan.tfplan')),
+      'packages/api/dist/api-lambda.zip': readFileSync('packages/api/dist/api-lambda.zip'),
+    })
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([path, data]) => [path, sha256(data)]),
+  )
+}
 function policy(input: unknown) {
   phase = 'structured-plan-policy'
   const report = {
@@ -245,11 +246,8 @@ function policy(input: unknown) {
 async function main() {
   actionsOnly()
   const command = process.argv[2]
-  if (command === 'approval') return approval()
   if (command === 'init') {
-    env('AWS_EXPECTED_ACCOUNT_ID')
     const bucket = env('TF_BACKEND_BUCKET')
-    await approval()
     phase = 'terraform-format-initialize-and-validate'
     terraform(['fmt', '-check', '-recursive', '../'], 'fmt.private.log')
     terraform(
@@ -259,7 +257,6 @@ async function main() {
     terraform(['validate', '-no-color'], 'validate.private.log')
     identity()
   } else if (command === 'plan') {
-    await approval()
     identity()
     const plan = createSavedPlan()
     assertArtifactInputs(plan)
@@ -292,76 +289,44 @@ async function main() {
     } finally {
       closeSync(buildLog)
     }
-    const files = {
-      ...webFiles(),
-      '.local/deploy/plan.tfplan': readFileSync(resolve(directory, 'plan.tfplan')),
-      'packages/api/dist/api-lambda.zip': readFileSync('packages/api/dist/api-lambda.zip'),
-    }
-    const manifest = createManifest(identity(), files, new Date())
-    phase = 'encrypted-handoff-public-key'
-    const ciphertext = sealBundle(manifest, files, env('DEPLOY_PLAN_PUBLIC_KEY'))
-    writeFileSync(resolve(directory, 'handoff.encrypted.json'), ciphertext, { mode: 0o600 })
-    // Safe identity/checksums only. The ciphertext hash is a job output bound to this run.
+    const files = deploymentFiles()
+    if (!Object.hasOwn(files, 'packages/web/dist/index.html'))
+      throw new DeploymentBlocked('Missing web index.html')
+    const manifest = manifestSchema.parse({
+      schemaVersion: 1,
+      identity: identity(),
+      createdAt: new Date().toISOString(),
+      files,
+    })
+    // Only hashes/identities leave this runner. The binary plan and builds stay in this job.
     write('manifest.json', manifest)
-    writeFileSync(env('GITHUB_OUTPUT'), `handoff_sha256=${sha256(ciphertext)}\n`, { flag: 'a' })
     writeFileSync(
       env('GITHUB_STEP_SUMMARY'),
       readFileSync(resolve(directory, 'policy.md')) +
-        `\nCommit: ${manifest.identity.commit}\nRun: ${manifest.identity.runId}\nExpires: ${manifest.expiresAt}\nSaved plan SHA-256: ${manifest.files['.local/deploy/plan.tfplan']}\nEncrypted handoff SHA-256: ${sha256(ciphertext)}\n`,
+        `\nCommit: ${manifest.identity.commit}\nRun: ${manifest.identity.runId}\nSaved plan SHA-256: ${manifest.files['.local/deploy/plan.tfplan']}\n`,
       { flag: 'a' },
     )
-  } else if (command === 'open') {
-    await approval()
-    phase = 'same-run-handoff-checksum'
-    const ciphertext = readFileSync(resolve(directory, 'handoff.encrypted.json'))
-    if (sha256(ciphertext) !== env('EXPECTED_HANDOFF_SHA256'))
-      throw new DeploymentBlocked('Wrong workflow artifact checksum')
-    const expected = identity()
-    phase = 'encrypted-handoff-identity-expiry-and-integrity'
-    const bundle = openBundle(
-      JSON.parse(ciphertext.toString()),
-      env('DEPLOY_PLAN_PRIVATE_KEY'),
-      expected,
-      new Date(),
-    )
-    for (const [path, data] of Object.entries(bundle.files)) {
-      mkdirSync(dirname(resolve(root, path)), { recursive: true, mode: 0o700 })
-      writeFileSync(resolve(root, path), data, { mode: 0o600 })
-    }
-    write('manifest.json', bundle.manifest)
-    // This re-inspects the saved plan; it never creates a replacement plan.
-    const plan: unknown = JSON.parse(
-      run('terraform', [`-chdir=${tf}`, 'show', '-json', resolve(directory, 'plan.tfplan')]),
-    )
-    assertArtifactInputs(plan)
-    const report = policy(plan)
-    if (!report.policyPassed) throw new DeploymentBlocked('Saved plan violates exposure policy')
   } else if (command === 'confirm-apply') {
-    await approval()
     const expected = identity()
-    phase = 'immediate-pre-apply-freshness-and-integrity'
-    const manifest = assertFreshManifest(
-      json(resolve(directory, 'manifest.json')),
-      expected,
-      new Date(),
+    phase = 'same-job-plan-and-build-integrity'
+    const manifest = manifestSchema.parse(json(resolve(directory, 'manifest.json')))
+    if (JSON.stringify(manifest.identity) !== JSON.stringify(expected))
+      throw new DeploymentBlocked('Deployment target or source changed since planning')
+    const files = deploymentFiles()
+    if (
+      Object.keys(manifest.files).length !== Object.keys(files).length ||
+      Object.entries(files).some(([path, hash]) => manifest.files[path] !== hash)
     )
-    for (const [path, digest] of Object.entries(manifest.files))
-      if (sha256(readFileSync(path)) !== digest)
-        throw new DeploymentBlocked('Artifact changed after review')
-    const expectedWebFiles = Object.keys(manifest.files)
-      .filter((path) => path.startsWith('packages/web/dist/'))
-      .sort()
-    if (JSON.stringify(Object.keys(webFiles()).sort()) !== JSON.stringify(expectedWebFiles))
-      throw new DeploymentBlocked('Web artifact files changed after review')
+      throw new DeploymentBlocked('Plan or build changed since planning')
   } else throw new DeploymentBlocked('Unknown deployment command')
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
   main().catch((error) => {
-    // Parser, provider, crypto and HTTP errors may contain sensitive input.
+    // Parser and provider errors may contain sensitive input.
     const detail =
       error instanceof DeploymentBlocked
         ? error.message
-        : 'Required command, schema, expiry or integrity validation failed; sensitive diagnostics omitted.'
+        : 'Required command, schema or integrity validation failed; sensitive diagnostics omitted.'
     console.error(`Deployment blocked at ${phase}: ${detail}. No fallback plan is permitted.`)
     try {
       write('prerequisite-failure.json', { schemaVersion: 1, success: false, phase, detail })

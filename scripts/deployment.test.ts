@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { generateKeyPairSync } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import {
   mkdtempSync,
   mkdirSync,
@@ -14,14 +14,12 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
-import {
-  inspectPlan,
-  assertApprovalProtection,
-  assertPlanningProtection,
-} from './deployment-policy.ts'
-import { createManifest, sealBundle, openBundle, sha256 } from './deployment-handoff.ts'
-import type { Identity } from './deployment-handoff.ts'
+import { inspectPlan } from './deployment-policy.ts'
 
+const terraformVersion = '1.15.8'
+const idQualifiedSubject =
+  'repo:rileyKacmarynski@28719606/recipes@1324636296:environment:production'
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex')
 const resource = (
   type: string,
   after: Record<string, unknown>,
@@ -34,9 +32,11 @@ const resource = (
   mode: 'managed',
   change: { actions, before, after, after_unknown: unknown },
 })
-const terraformVersion = '1.15.8'
-const idQualifiedSubject =
-  'repo:rileyKacmarynski@28719606/recipes@1324636296:environment:production'
+const plan = (resources: unknown[] = []) => ({
+  format_version: '1.2',
+  terraform_version: terraformVersion,
+  resource_changes: resources,
+})
 
 test(
   'the actual Terraform variable accepts the configured ID-qualified OIDC subject',
@@ -56,7 +56,7 @@ test(
       join(directory, 'main.tf'),
       declaration + '\noutput "subject" { value = var.github_oidc_subject }\n',
     )
-    // This isolated fixture has no providers/backend and never contacts AWS or Cloudflare.
+    // No providers or backend: this fixture never contacts AWS/Cloudflare.
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([name]) => !name.startsWith('TF_')),
     )
@@ -66,7 +66,7 @@ test(
       { env, encoding: 'utf8' },
     )
     assert.equal(init.status, 0, init.stderr)
-    const plan = spawnSync(
+    const result = spawnSync(
       'terraform',
       [
         `-chdir=${directory}`,
@@ -79,22 +79,16 @@ test(
       ],
       { env, encoding: 'utf8' },
     )
-    assert.equal(plan.status, 0, plan.stdout + plan.stderr)
+    assert.equal(result.status, 0, result.stdout + result.stderr)
     const shown = spawnSync(
       'terraform',
       [`-chdir=${directory}`, 'show', '-json', 'fixture.tfplan'],
       { env, encoding: 'utf8' },
     )
-    assert.equal(shown.status, 0, shown.stderr)
+    assert.equal(shown.status, 0)
     assert.equal(JSON.parse(shown.stdout).variables.github_oidc_subject.value, idQualifiedSubject)
   },
 )
-const plan = (resources: unknown[] = []) => ({
-  format_version: '1.2',
-  terraform_version: terraformVersion,
-  resource_changes: resources,
-})
-
 test('new resources, renamed modules, extra hostnames and DNS-only records do not need a separate inventory', () => {
   const resources = [
     resource('aws_s3_bucket', {}),
@@ -116,7 +110,6 @@ test('new resources, renamed modules, extra hostnames and DNS-only records do no
   assert.equal(inspectPlan(plan()).policyPassed, true)
   assert.ok(report.findings.every((finding) => finding.severity === 'review'))
 })
-
 test('known public exposure and missing database encryption still block regardless of resource name', () => {
   const report = inspectPlan(
     plan([
@@ -132,8 +125,7 @@ test('known public exposure and missing database encryption still block regardle
       report.findings.some((finding) => finding.rule === rule && finding.severity === 'violation'),
     )
 })
-
-test('security unknowns are visible but ordinary generated metadata is not review noise', () => {
+test('security unknowns remain visible without warnings for ordinary generated metadata', () => {
   const report = inspectPlan(
     plan([
       resource('aws_apigatewayv2_api', {}, ['create'], {
@@ -152,8 +144,7 @@ test('security unknowns are visible but ordinary generated metadata is not revie
   )
   assert.ok(report.findings.every((finding) => finding.severity === 'unresolved'))
 })
-
-test('destruction, Access/IAM edits, CAA changes and disabling deletion protection require review, not a policy rewrite', () => {
+test('architectural changes are reported, not held for approval inside Actions', () => {
   const report = inspectPlan(
     plan([
       resource('aws_s3_bucket', {}, ['delete']),
@@ -181,8 +172,7 @@ test('destruction, Access/IAM edits, CAA changes and disabling deletion protecti
       report.findings.some((finding) => finding.rule === rule && finding.severity === 'review'),
     )
 })
-
-test('malformed and incomplete plans fail; policy reports never copy values or sensitive instance keys', () => {
+test('malformed/incomplete plans fail and redacted reports never copy secret values or instance keys', () => {
   for (const input of [
     null,
     {},
@@ -205,183 +195,19 @@ test('malformed and incomplete plans fail; policy reports never copy values or s
   assert.ok(!JSON.stringify(report).includes(secret))
   assert.ok(report.resources[0]!.address.endsWith('[*]'))
 })
-
-const environment = () => ({
-  can_admins_bypass: false,
-  protection_rules: [
-    {
-      type: 'required_reviewers',
-      prevent_self_review: false,
-      reviewers: [{ type: 'User', reviewer: { login: 'rileyKacmarynski' } }],
-    },
-  ],
-  deployment_branch_policy: { protected_branches: false, custom_branch_policies: true },
-})
-const branches = { branch_policies: [{ name: 'main', type: 'branch' }] }
-test('approval checks enforce a real human gate, not exact reviewer membership or self-review settings', () => {
-  assert.doesNotThrow(() => assertApprovalProtection(environment(), branches))
-  assert.doesNotThrow(() =>
-    assertApprovalProtection(
-      {
-        ...environment(),
-        protection_rules: [
-          {
-            type: 'required_reviewers',
-            prevent_self_review: true,
-            reviewers: [
-              { type: 'User', reviewer: { login: 'another-maintainer' } },
-              { type: 'Team', reviewer: { id: 123 } },
-            ],
-          },
-        ],
-      },
-      branches,
-    ),
-  )
-  for (const input of [
-    null,
-    {},
-    { ...environment(), can_admins_bypass: true },
-    { ...environment(), protection_rules: [] },
-    { ...environment(), protection_rules: [{ type: 'required_reviewers', reviewers: [] }] },
-  ])
-    assert.throws(() => assertApprovalProtection(input, branches))
-})
-test('both credential environments still restrict deployment to main', () => {
-  assert.doesNotThrow(() => assertPlanningProtection(environment(), branches))
-  for (const policies of [
-    [],
-    [{ name: '*' }],
-    [{ name: 'main', type: 'tag' }],
-    [{ name: 'main' }, { name: 'feature/*' }],
-  ])
-    assert.throws(() => assertPlanningProtection(environment(), { branch_policies: policies }))
-})
-
-const identity: Identity = {
-  repository: 'rileyKacmarynski/recipes',
-  runId: '123',
-  runAttempt: '1',
-  commit: 'a'.repeat(40),
-  account: '123456789012',
-  region: 'us-east-1',
-  bucket: 'test-backend',
-  backendKey: 'prod/terraform.tfstate',
-  workspace: 'default',
-  workspacePath: '/home/runner/work/recipes/recipes',
-  terraformVersion,
-  configurationSha256: 'b'.repeat(64),
-  providerLockSha256: 'c'.repeat(64),
-}
-const files = {
-  '.local/deploy/plan.tfplan': Buffer.from('SECRET_PLAN'),
-  'packages/api/dist/api-lambda.zip': Buffer.from('MATCHING_API'),
-  'packages/web/dist/index.html': Buffer.from('MATCHING_WEB'),
-}
-const now = new Date('2026-10-16T01:00:00Z')
-const { publicKey, privateKey } = generateKeyPairSync('rsa', {
-  modulusLength: 2048,
-  publicKeyEncoding: { type: 'spki', format: 'pem' },
-  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-})
-
-test('the exact encrypted plan/builds remain usable through the one-day handoff window', () => {
-  const manifest = createManifest(identity, files, now)
-  const ciphertext = sealBundle(manifest, files, publicKey)
-  assert.ok(!ciphertext.includes('SECRET_PLAN'))
-  assert.deepEqual(
-    openBundle(JSON.parse(ciphertext), privateKey, identity, new Date('2026-10-16T08:00:00Z'))
-      .files,
-    files,
-  )
-  for (const time of ['2026-10-16T00:59:59Z', '2026-10-17T01:00:00Z'])
-    assert.throws(() => openBundle(JSON.parse(ciphertext), privateKey, identity, new Date(time)))
-})
-test('reruns can produce new handoffs, but cannot reuse a different attempt, commit, target or artifact', () => {
-  const retried = {
-    ...identity,
-    runAttempt: '2',
-    region: 'eu-west-1',
-    backendKey: 'other/state',
-    workspace: 'other',
-  }
-  const ciphertext = JSON.parse(sealBundle(createManifest(retried, files, now), files, publicKey))
-  assert.deepEqual(openBundle(ciphertext, privateKey, retried, now).files, files)
-  for (const override of [
-    { runAttempt: '1' },
-    { runId: '124' },
-    { commit: 'd'.repeat(40) },
-    { account: '999999999999' },
-    { bucket: 'wrong' },
-    { workspace: 'wrong' },
-    { configurationSha256: 'd'.repeat(64) },
-    { providerLockSha256: 'e'.repeat(64) },
-  ])
-    assert.throws(() => openBundle(ciphertext, privateKey, { ...retried, ...override }, now))
-})
-test('tampering, missing builds, unsafe paths and changed artifact bytes still fail closed', () => {
-  const manifest = createManifest(identity, files, now)
-  const ciphertext = JSON.parse(sealBundle(manifest, files, publicKey))
-  assert.throws(() =>
-    openBundle(
-      { ...ciphertext, tag: Buffer.alloc(16).toString('base64') },
-      privateKey,
-      identity,
-      now,
-    ),
-  )
-  assert.throws(() => createManifest(identity, { ...files, '../escape': Buffer.from('bad') }, now))
-  assert.throws(() => createManifest(identity, {}, now))
-  assert.throws(() =>
-    createManifest(
-      identity,
-      { ...files, 'packages/web/dist/../../escape': Buffer.from('bad') },
-      now,
-    ),
-  )
-  const assets = { ...files, 'packages/web/dist/assets/logo @2x.svg': Buffer.from('<svg/>') }
-  assert.deepEqual(
-    openBundle(
-      JSON.parse(sealBundle(createManifest(identity, assets, now), assets, publicKey)),
-      privateKey,
-      identity,
-      now,
-    ).files,
-    assets,
-  )
-  assert.throws(() =>
-    openBundle(
-      JSON.parse(
-        sealBundle(
-          manifest,
-          { ...files, 'packages/api/dist/api-lambda.zip': Buffer.from('OTHER_COMMIT') },
-          publicKey,
-        ),
-      ),
-      privateKey,
-      identity,
-      now,
-    ),
-  )
-})
 test('local review refuses obsolete Actions download/decrypt inputs', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'recipes-review-test-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
-  const env = {
-    ...process.env,
-    REVIEW_HANDOFF_PATH: '/not-a-local-preview/handoff.json',
-  }
   const result = spawnSync(process.execPath, [resolve('scripts/infra-plan.mjs'), 'review'], {
     cwd: directory,
-    env,
     encoding: 'utf8',
+    env: { ...process.env, REVIEW_HANDOFF_PATH: '/not-a-local-preview/handoff.json' },
   })
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /Actions plans are reviewed in GitHub/)
+  assert.match(result.stderr, /Actions plans stay on the runner/)
   assert.equal(result.stdout, '')
-  assert.ok(!result.stdout.includes('SECRET_PLAN'))
 })
-test('Actions handles Terraform exit codes without leaking diagnostics or falling back to apply', (t) => {
+test('Actions handles detailed plan exit codes without logging diagnostics or falling back to apply', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'recipes-actions-plan-test-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   mkdirSync(join(directory, 'bin'))
@@ -420,8 +246,7 @@ esac\n`,
           PLAN_STATUS: String(status),
           GITHUB_ACTIONS: 'true',
           GITHUB_REF: 'refs/heads/main',
-          GITHUB_REPOSITORY: identity.repository,
-          AWS_REGION: identity.region,
+          AWS_REGION: 'us-east-1',
           TF_CLI_ARGS_plan: '-destroy',
           TF_LOG: 'TRACE',
           CLOUDFLARE_API_TOKEN: 'secret',
@@ -445,16 +270,12 @@ esac\n`,
     assert.ok(!existsSync(join(directory, '.local/deploy/artifact.tfvars.json')))
   }
 })
-
-test('a rerun plans and seals builds for its pinned commit without requiring latest main or fixed app URLs', (t) => {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'recipes-authoritative-test-')))
+test('one job plans and verifies its builds without GitHub approval APIs, transfer, or encryption keys', (t) => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'recipes-same-job-test-')))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   for (const path of ['bin', 'packages/api/dist', 'infra/terraform/prod/.terraform'])
     mkdirSync(join(directory, path), { recursive: true })
-  writeFileSync(
-    join(directory, 'packages/api/dist/api-lambda.zip'),
-    files['packages/api/dist/api-lambda.zip'],
-  )
+  writeFileSync(join(directory, 'packages/api/dist/api-lambda.zip'), 'MATCHING_API')
   writeFileSync(join(directory, 'infra/terraform/prod/main.tf'), '# fixture')
   writeFileSync(join(directory, 'infra/terraform/prod/.terraform.lock.hcl'), '# pinned fixture')
   writeFileSync(
@@ -462,36 +283,38 @@ test('a rerun plans and seals builds for its pinned commit without requiring lat
     JSON.stringify({
       backend: {
         type: 's3',
-        config: { bucket: identity.bucket, key: identity.backendKey, region: identity.region },
+        config: { bucket: 'backend', key: 'prod/terraform.tfstate', region: 'us-east-1' },
       },
     }),
   )
+  const commit = 'a'.repeat(40),
+    account = '123456789012'
   const executable = (name: string, body: string) =>
     writeFileSync(join(directory, 'bin', name), `#!/bin/bash\n${body}\n`, { mode: 0o700 })
   executable(
     'git',
-    `case "$*" in 'rev-parse HEAD') printf '${identity.commit}' ;; 'ls-files infra/terraform') printf 'infra/terraform/prod/main.tf\\ninfra/terraform/prod/.terraform.lock.hcl' ;; *) exit 1 ;; esac`,
+    `case "$*" in 'rev-parse HEAD') printf '${commit}' ;; 'ls-files infra/terraform') printf 'infra/terraform/prod/main.tf\\ninfra/terraform/prod/.terraform.lock.hcl' ;; *) exit 1 ;; esac`,
   )
-  executable('aws', `printf '${JSON.stringify({ Account: identity.account })}'`)
+  executable('aws', `printf '${JSON.stringify({ Account: account })}'`)
   const savedPlan = {
     ...plan(),
     variables: {
       api_lambda_zip_path: { value: join(directory, 'packages/api/dist/api-lambda.zip') },
       api_lambda_source_code_hash: {
-        value: Buffer.from(sha256(files['packages/api/dist/api-lambda.zip']), 'hex').toString(
-          'base64',
-        ),
+        value: Buffer.from(sha256('MATCHING_API'), 'hex').toString('base64'),
       },
       aws_profile: { value: null },
-      aws_region: { value: identity.region },
+      aws_region: { value: 'us-east-1' },
     },
     planned_values: { outputs: { api_url: { value: 'https://new-api.example' } } },
   }
-  const planFile = join(directory, 'plan-fixture.json')
+  const planFile = join(directory, 'plan-fixture.json'),
+    calls = join(directory, 'calls')
   writeFileSync(planFile, JSON.stringify(savedPlan))
   executable(
     'terraform',
-    `case "$*" in
+    `printf '%s\\n' "$*" >> "$CALLS"
+case "$*" in
   'version -json') printf '${JSON.stringify({ terraform_version: terraformVersion })}' ;;
   *' workspace show') printf default ;;
   *' plan '*) printf 'PRIVATE_PLAN' > "$GITHUB_WORKSPACE/.local/deploy/plan.tfplan"; exit 2 ;;
@@ -503,69 +326,78 @@ esac`,
     'pnpm',
     'mkdir -p packages/web/dist; printf \'%s\' "$VITE_API_URL" > packages/web/dist/index.html',
   )
-  const preload = join(directory, 'github-fixture.mjs')
+  const preload = join(directory, 'no-github-api.mjs')
   writeFileSync(
     preload,
-    `globalThis.fetch = async (url) => {
-    if (String(url).includes('/git/ref/')) throw new Error('Do not require main HEAD');
-    const branch = { deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } };
-    const value = String(url).includes('deployment-branch-policies') ? { branch_policies: [{ name: 'main', type: 'branch' }] }
-      : { ...branch, can_admins_bypass: false, protection_rules: [{ type: 'required_reviewers', prevent_self_review: true, reviewers: [{ type: 'User', reviewer: { login: 'another-maintainer' } }] }] };
-    return Response.json(value);
-  };`,
+    'globalThis.fetch = async () => { throw new Error("No approval API calls allowed"); };',
   )
-  const result = spawnSync(
-    process.execPath,
-    ['--import', preload, resolve('scripts/production-deployment.ts'), 'plan'],
-    {
-      cwd: directory,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH: `${join(directory, 'bin')}:${process.env.PATH}`,
-        PLAN_FIXTURE: planFile,
-        GITHUB_ACTIONS: 'true',
-        GITHUB_REF: 'refs/heads/main',
-        GITHUB_REPOSITORY: identity.repository,
-        GITHUB_WORKSPACE: directory,
-        GITHUB_RUN_ID: identity.runId,
-        GITHUB_RUN_ATTEMPT: '2',
-        GITHUB_SHA: identity.commit,
-        GH_TOKEN: 'private',
-        GITHUB_OUTPUT: join(directory, 'github-output'),
-        GITHUB_STEP_SUMMARY: join(directory, 'summary'),
-        AWS_REGION: identity.region,
-        AWS_EXPECTED_ACCOUNT_ID: identity.account,
-        TF_WORKSPACE: identity.workspace,
-        TERRAFORM_VERSION: terraformVersion,
-        TF_BACKEND_BUCKET: identity.bucket,
-        TF_VAR_terraform_state_bucket: identity.bucket,
-        TF_VAR_github_oidc_subject: idQualifiedSubject,
-        DEPLOY_PLAN_PUBLIC_KEY: publicKey,
-        CLOUDFLARE_API_TOKEN: 'private',
-        TF_VAR_access_allowed_email: 'private',
-        TF_VAR_cloudflare_account_id: 'private',
-        TF_VAR_cloudflare_access_team_domain: 'private',
-        TF_VAR_cloudflare_zone_id: 'private',
-      },
-    },
-  )
-  assert.equal(result.status, 0, result.stderr)
+  const env = {
+    ...process.env,
+    PATH: `${join(directory, 'bin')}:${process.env.PATH}`,
+    PLAN_FIXTURE: planFile,
+    CALLS: calls,
+    GITHUB_ACTIONS: 'true',
+    GITHUB_REF: 'refs/heads/main',
+    GITHUB_REPOSITORY: 'owner/recipes',
+    GITHUB_WORKSPACE: directory,
+    GITHUB_RUN_ID: '123',
+    GITHUB_RUN_ATTEMPT: '2',
+    GITHUB_SHA: commit,
+    GITHUB_STEP_SUMMARY: join(directory, 'summary'),
+    AWS_REGION: 'us-east-1',
+    AWS_EXPECTED_ACCOUNT_ID: '',
+    AWS_DEPLOY_ROLE_ARN: `arn:aws:iam::${account}:role/deploy`,
+    TF_WORKSPACE: 'default',
+    TERRAFORM_VERSION: terraformVersion,
+    TF_BACKEND_BUCKET: 'backend',
+    TF_VAR_terraform_state_bucket: 'backend',
+    TF_VAR_github_oidc_subject: idQualifiedSubject,
+    CLOUDFLARE_API_TOKEN: 'private',
+    TF_VAR_access_allowed_email: 'private',
+    TF_VAR_cloudflare_account_id: 'private',
+    TF_VAR_cloudflare_access_team_domain: 'private',
+    TF_VAR_cloudflare_zone_id: 'private',
+    GH_TOKEN: '',
+    DEPLOY_PLAN_PUBLIC_KEY: '',
+    DEPLOY_PLAN_PRIVATE_KEY: '',
+  }
+  const execute = (command: string, overrides = {}) =>
+    spawnSync(
+      process.execPath,
+      ['--import', preload, resolve('scripts/production-deployment.ts'), command],
+      { cwd: directory, encoding: 'utf8', env: { ...env, ...overrides } },
+    )
+  const planned = execute('plan')
+  assert.equal(planned.status, 0, planned.stderr)
   const manifest = JSON.parse(readFileSync(join(directory, '.local/deploy/manifest.json'), 'utf8'))
-  const restored = openBundle(
-    JSON.parse(readFileSync(join(directory, '.local/deploy/handoff.encrypted.json'), 'utf8')),
-    privateKey,
-    manifest.identity,
-    new Date(),
-  )
   assert.equal(manifest.identity.runAttempt, '2')
+  assert.equal(manifest.identity.account, account)
+  assert.equal(manifest.files['.local/deploy/plan.tfplan'], sha256('PRIVATE_PLAN'))
+  assert.equal(manifest.files['packages/web/dist/index.html'], sha256('https://new-api.example'))
+  assert.ok(!existsSync(join(directory, '.local/deploy/handoff.encrypted.json')))
+  assert.equal(execute('confirm-apply').status, 0)
+  writeFileSync(join(directory, 'packages/web/dist/index.html'), 'changed')
+  assert.equal(execute('confirm-apply').status, 1)
+  writeFileSync(join(directory, 'packages/web/dist/index.html'), 'https://new-api.example')
+  writeFileSync(join(directory, 'packages/web/dist/unplanned.txt'), 'changed')
+  assert.equal(execute('confirm-apply').status, 1)
+  rmSync(join(directory, 'packages/web/dist/unplanned.txt'))
+  assert.equal(execute('confirm-apply', { GITHUB_RUN_ATTEMPT: '3' }).status, 1)
   assert.equal(
-    restored.files['packages/web/dist/index.html']!.toString(),
-    'https://new-api.example',
+    execute('confirm-apply', { AWS_DEPLOY_ROLE_ARN: 'arn:aws:iam::999999999999:role/wrong' })
+      .status,
+    1,
   )
-  assert.equal(restored.files['.local/deploy/plan.tfplan']!.toString(), 'PRIVATE_PLAN')
+  assert.equal(
+    readFileSync(calls, 'utf8')
+      .split('\n')
+      .filter((line) => line.includes(' plan ')).length,
+    1,
+  )
+  assert.ok(!readFileSync(calls, 'utf8').includes('apply'))
+  assert.ok(!readFileSync(join(directory, 'summary'), 'utf8').includes('PRIVATE_PLAN'))
 })
-test('local calls and feature refs are refused; local inspection is never authoritative', (t) => {
+test('local calls and feature refs are refused; local inspection is never the Actions plan', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'recipes-inspect-test-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   for (const values of [

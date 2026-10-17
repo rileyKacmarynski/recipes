@@ -169,7 +169,7 @@ export function summarizePlan(plan) {
       'This is a value-redacted local preview, not approval or proof of runtime behavior.',
       'All attribute/output values, instance keys, provider diagnostics, and credentials are omitted.',
       'Inspect private plan/log files yourself if more detail is needed; do not share them with an agent.',
-      'Only the separately generated authoritative Actions plan can be approved for deployment.',
+      'Actions generates its own saved plan after push/merge; this local plan is not uploaded or applied by the workflow.',
     ],
   }
 }
@@ -284,7 +284,7 @@ function main([command, input, output, root]) {
   } else if (command === 'review') {
     if (Object.keys(process.env).some((name) => name.startsWith('REVIEW_')))
       throw new InspectionError(
-        'Actions plans are reviewed in GitHub, not downloaded for local review. Remove obsolete REVIEW_* inputs; pnpm infra:review only opens the newest local preview.',
+        'Actions plans stay on the runner; there is no local download/decrypt flow. Remove obsolete REVIEW_* inputs; pnpm infra:review only opens the newest local preview.',
       )
     const preview = latestPreview()
     if (!process.stdout.isTTY)

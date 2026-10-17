@@ -19,15 +19,16 @@ Future staging infrastructure should use a separate environment root, for exampl
 - Cloudflare Zero Trust organization with One-Time PIN configured manually
 - Cloudflare API token exported as `CLOUDFLARE_API_TOKEN`
 
-The **protected mutation** Cloudflare token needs permissions for:
+The production Cloudflare token needs permissions for:
 
 - Account / Access: Apps and Policies / Edit
 - Account / Access: Service Tokens / Edit (for the dedicated deployment smoke token)
 - Zone / DNS / Edit
 - Zone / Zone / Read
 
-Authoritative planning uses a separate read-only token and AWS role, not these
-mutation credentials. See the [production workflow prerequisites](../../doc/production-infra-workflow.md#one-time-operator-prerequisites).
+Actions plans and applies in one job using the existing production credentials.
+No separate planning role, environment, key pair or plan-transfer storage is needed.
+See the [production workflow runbook](../../doc/production-infra-workflow.md).
 
 Required local environment:
 
@@ -80,12 +81,10 @@ Production uses one-label hostnames under `rkac.dev`, which keeps them within Cl
 
 ## GitHub Production Deploy
 
-Production Terraform defines separate planning and deployment GitHub OIDC roles.
-Existing production uses the deploy role; the new read-only planning role is a
-separately authorized operator bootstrap prerequisite. Configure the required
-human approval, branch restrictions and encrypted handoff before enabling the new
-workflow, as described in the [production workflow runbook](../../doc/production-infra-workflow.md).
-Keep these existing mutation/backend settings in GitHub's protected production
+Review changes locally or approve the PR before pushing/merging to `main`.
+Actions automatically creates and applies its own saved plan in the same runner
+job, using the existing deployment role. There is no manual Actions approval.
+Keep these existing mutation/backend settings in GitHub's production
 environment (never repository-level mutation secrets):
 
 - `AWS_DEPLOY_ROLE_ARN`: `terraform -chdir=infra/terraform/prod output -raw github_actions_deploy_role_arn`
@@ -97,11 +96,12 @@ environment (never repository-level mutation secrets):
 - `ACCESS_ALLOWED_EMAIL`: email address allowed by the initial Access policy
 - `CLOUDFLARE_API_TOKEN`: Cloudflare API token with Access and DNS edit permissions
 
-Actions builds the API and web once, creates the authoritative saved plan with
-read-only credentials, waits for the sole human reviewer (self-review allowed),
-then applies exactly that plan and deploys those matching builds. It reads outputs
+Actions builds the API, creates/inspects its saved plan, builds the web with that
+plan's API URL, then applies exactly that plan and deploys those matching builds.
+It reads outputs
 privately, migrates the database, invalidates CloudFront and runs both smoke tests
-and infrastructure verification. Local previews cannot authorize that plan.
+and infrastructure verification. Local review approves the proposed changes, not
+the bytes of the fresh Actions plan; the local binary is never uploaded or applied.
 
 Database-related outputs available to deployment and migration steps:
 
@@ -110,8 +110,7 @@ Database-related outputs available to deployment and migration steps:
 - `database_resource_arn`: Aurora cluster ARN for RDS Data API calls
 - `database_secret_arn`: Secrets Manager credential secret ARN, marked sensitive
 
-Do not reuse the deploy role for planning or bypass approval to bootstrap missing
-permissions. Any initial credential/IAM provisioning or exceptional recovery must
+Any initial credential/IAM provisioning or exceptional recovery must
 be separately authorized and coordinated; routine production changes use Actions.
 
 ## DB-backed production smoke test
@@ -142,8 +141,8 @@ Before the first deploy using this check:
    above. This is distinct from the smoke token and must not be used as a smoke
    request credential.
 2. Provision the initial service identity as a separately authorized bootstrap
-   prerequisite. For existing environments, use the authoritative saved-plan
-   approval flow; a local preview is not deployment authorization.
+   prerequisite. For existing environments, review the change locally or in the
+   PR, then let Actions plan/apply it after push/merge to main.
 3. Copy the created credentials directly into GitHub's production environment
    secrets, without displaying them or saving them in the repository:
 
@@ -169,9 +168,9 @@ reviewed Terraform plan, copy both replacement outputs into GitHub again, and
 redeploy so the API's allowed Client ID matches the new token. Do not rotate by
 changing only GitHub secrets or disabling JWT validation.
 
-To redeploy, dispatch a new run on `main` or rerun planning, then approve its plan. To
-roll back, revert through a new main commit and the same approval flow. Do not
-rerun a previous apply job, deploy arbitrary old refs, or rebuild after approval.
-Expired/stale/mismatched plans require a new run and human review; partial
+To redeploy, dispatch or rerun the workflow on `main`; the job always creates a
+fresh saved plan before applying it. To roll back, review and merge a revert.
+Do not deploy feature refs or reuse old plan files. Stale/mismatched plans fail
+without an automatic replacement plan; partial
 deployment is not automatically rolled back. See the runbook for exact-run
 verification reports and safe recovery. Read-only monitoring remains #28.
