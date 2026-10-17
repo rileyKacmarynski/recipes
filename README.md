@@ -115,16 +115,28 @@ The latter requires a deployed HTTPS `API_URL` and service credentials; it does
 not build, deploy, or write recipe data and is not included in `pnpm test`.
 See the [Terraform operator guide](infra/terraform/README.md) for provisioning,
 credentials, and rotation, and [ADR 0004](doc/adr/0004-use-read-only-service-auth-for-production-smoke-tests.md)
-for the read-only service-identity boundary. Production setup and live smoke-test
-verification are pending; the implementation has been verified locally.
+for the read-only service-identity boundary. #22's production smoke checks were
+deployed and verified before the saved-plan workflow change.
 
 For a human-run local Terraform preview with hidden credential entry and an
 agent-readable sanitized report, run `bash scripts/plan-prod.sh`. It does not apply
-anything. See the [plan-preview runbook](doc/production-infra-workflow.md#local-plan-preview)
+anything. See the [plan-preview runbook](doc/production-infra-workflow.md#local-preview-details)
 for var-file inputs, report locations, and secret-handling limits.
 
-Reviewed saved-plan deployment (#14), pipeline monitoring (#28), and built-artifact
-black-box UAT (#24) are planned work, not existing guarantees.
+After a local preview, no paths are needed:
+
+```sh
+pnpm infra:inspect  # Redacted inspection of the newest local saved plan
+pnpm infra:review   # Full private terminal review of that local plan
+```
+
+Actions plans are reviewed and approved in GitHub, not on your local machine.
+
+Production deployment now separates the authoritative Actions saved plan from a
+required human environment approval and exact-plan apply. Before enabling it,
+complete the [environment, read-only planning credentials and encryption prerequisites](doc/production-infra-workflow.md#one-time-operator-prerequisites).
+The new workflow still needs a live approved validation run. Pipeline monitoring
+(#28) and built-artifact black-box UAT (#24) remain separate work.
 
 ## Current Scope
 

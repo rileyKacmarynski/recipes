@@ -14,20 +14,25 @@
     "dev": "pnpm --parallel --filter @recipes/web --filter @recipes/api dev",
     "build": "pnpm -r build",
     "test": "pnpm test:infra && pnpm -r test",
-    "test:infra": "node --test scripts/infra-plan.test.mjs",
+    "test:infra": "node --test scripts/*.test.mjs scripts/*.test.ts",
+    "infra:preview": "bash scripts/plan-prod.sh",
+    "infra:inspect": "node scripts/infra-plan.mjs inspect",
+    "infra:review": "node scripts/infra-plan.mjs review",
+    "typecheck:infra": "tsc -p scripts/tsconfig.json",
     "test:unit": "pnpm test:infra && pnpm -r --if-present test:unit",
     "test:e2e": "pnpm --filter @recipes/web test:e2e",
     "test:e2e:headed": "pnpm --filter @recipes/web test:e2e:headed",
     "test:e2e:ui": "pnpm --filter @recipes/web test:e2e:ui",
     "lint": "oxlint .",
     "format": "oxfmt --check .",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm typecheck:infra && pnpm -r typecheck"
   },
   "devDependencies": {
     "@types/node": "latest",
     "oxfmt": "latest",
     "oxlint": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "zod": "4.4.3"
   },
   "packageManager": "pnpm@11.21.0"
 }

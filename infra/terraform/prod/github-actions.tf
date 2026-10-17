@@ -26,7 +26,7 @@ data "aws_iam_policy_document" "github_actions_deploy_assume_role" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = [var.github_oidc_subject]
     }
@@ -133,4 +133,64 @@ resource "aws_iam_role_policy_attachment" "github_actions_deploy_power_user" {
 resource "aws_iam_role_policy_attachment" "github_actions_deploy_iam_full_access" {
   role       = aws_iam_role.github_actions_deploy.name
   policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
+}
+
+# Separate read-only planning identity. State-lock writes are limited to the
+# backend lock object, not production resources or the state itself.
+data "aws_iam_policy_document" "github_actions_plan_assume_role" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github_actions.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = [replace(var.github_oidc_subject, ":environment:production", ":environment:production-plan")]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_actions_plan" {
+  name               = "${local.name_prefix}-github-actions-plan"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_plan_assume_role.json
+  tags               = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "github_actions_plan_read_only" {
+  role       = aws_iam_role.github_actions_plan.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}
+
+data "aws_iam_policy_document" "github_actions_plan_backend" {
+  statement {
+    actions   = ["s3:GetBucketLocation", "s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}"]
+  }
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}/prod/terraform.tfstate"]
+  }
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}/prod/terraform.tfstate.tflock"]
+  }
+  # Explicit denies also constrain the broad AWS-managed read policy.
+  statement {
+    effect    = "Deny"
+    actions   = ["s3:PutObject", "s3:DeleteObject"]
+    resources = ["arn:aws:s3:::${var.terraform_state_bucket}/prod/terraform.tfstate"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_plan_backend" {
+  name   = "terraform-plan-backend"
+  role   = aws_iam_role.github_actions_plan.id
+  policy = data.aws_iam_policy_document.github_actions_plan_backend.json
 }

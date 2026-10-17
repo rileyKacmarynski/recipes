@@ -4,8 +4,8 @@
 > verification have since been implemented. See ADRs 0002–0004 and
 > [the Terraform operator guide](../infra/terraform/README.md) for the maintained
 > deployment/authentication and production smoke-test guidance. Reviewed saved-plan
-> deployment and deterministic pipeline inspection remain planned in issues #14
-> and #28; this document is not their implementation spec.
+> deployment is documented in [the production workflow runbook](production-infra-workflow.md);
+> read-only pipeline monitoring remains #28. This historical document is not their implementation spec.
 
 ## Goal
 

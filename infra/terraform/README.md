@@ -12,19 +12,22 @@ Future staging infrastructure should use a separate environment root, for exampl
 
 ## Prerequisites
 
-- Terraform CLI `>= 1.10.0`
+- Terraform CLI supported by `required_version`; Actions pins its own version in the workflow
 - AWS CLI profile with access to the `recipes` AWS account
 - AWS region `us-east-1`
 - Cloudflare zone for `rkac.dev`
 - Cloudflare Zero Trust organization with One-Time PIN configured manually
 - Cloudflare API token exported as `CLOUDFLARE_API_TOKEN`
 
-The Cloudflare token needs permissions for:
+The **protected mutation** Cloudflare token needs permissions for:
 
 - Account / Access: Apps and Policies / Edit
 - Account / Access: Service Tokens / Edit (for the dedicated deployment smoke token)
 - Zone / DNS / Edit
 - Zone / Zone / Read
+
+Authoritative planning uses a separate read-only token and AWS role, not these
+mutation credentials. See the [production workflow prerequisites](../../doc/production-infra-workflow.md#one-time-operator-prerequisites).
 
 Required local environment:
 
@@ -62,13 +65,11 @@ terraform -chdir=infra/terraform/prod init \
   -backend-config="profile=recipes-admin"
 ```
 
-Then package the API Lambda and apply once locally after bootstrap, and again any time the GitHub deploy role permissions themselves need to change:
+For an ordinary local preview, use the plan-only wizard (it independently checks
+backend and provider identities and never applies):
 
 ```sh
-pnpm --filter @recipes/api package:lambda
-export TF_VAR_api_lambda_zip_path="$PWD/packages/api/dist/api-lambda.zip"
-export TF_VAR_api_lambda_source_code_hash="$(openssl dgst -sha256 -binary "$TF_VAR_api_lambda_zip_path" | openssl base64 -A)"
-terraform -chdir=infra/terraform/prod apply
+pnpm infra:preview
 ```
 
 Terraform creates the production AWS resources, Cloudflare DNS records, Cloudflare Access applications, and Access policies. Do not manually create S3 buckets, CloudFront distributions, Lambda functions, API Gateway resources, or app DNS records for this deployment.
@@ -79,18 +80,28 @@ Production uses one-label hostnames under `rkac.dev`, which keeps them within Cl
 
 ## GitHub Production Deploy
 
-Production Terraform creates the GitHub OIDC role used by `.github/workflows/deploy.yml` for production infrastructure and app artifact deployment. After a local apply, store these Terraform/backend values as GitHub Actions production environment secrets:
+Production Terraform defines separate planning and deployment GitHub OIDC roles.
+Existing production uses the deploy role; the new read-only planning role is a
+separately authorized operator bootstrap prerequisite. Configure the required
+human approval, branch restrictions and encrypted handoff before enabling the new
+workflow, as described in the [production workflow runbook](../../doc/production-infra-workflow.md).
+Keep these existing mutation/backend settings in GitHub's protected production
+environment (never repository-level mutation secrets):
 
 - `AWS_DEPLOY_ROLE_ARN`: `terraform -chdir=infra/terraform/prod output -raw github_actions_deploy_role_arn`
 - `TERRAFORM_STATE_BUCKET`: the bootstrap `terraform_state_bucket` output
-- `AWS_REGION`: `us-east-1`
+- Region is pinned to `us-east-1` in the workflow
 - `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account ID for Zero Trust resources
 - `CLOUDFLARE_ACCESS_TEAM_DOMAIN`: Cloudflare Zero Trust team domain, for example `your-team.cloudflareaccess.com`
 - `CLOUDFLARE_ZONE_ID`: Cloudflare zone ID for `rkac.dev`
 - `ACCESS_ALLOWED_EMAIL`: email address allowed by the initial Access policy
 - `CLOUDFLARE_API_TOKEN`: Cloudflare API token with Access and DNS edit permissions
 
-The GitHub deploy workflow builds the API Lambda zip, applies production Terraform with that artifact, reads Terraform outputs from remote state, applies database migrations, deploys API/web artifacts, invalidates CloudFront, and runs smoke tests.
+Actions builds the API and web once, creates the authoritative saved plan with
+read-only credentials, waits for the sole human reviewer (self-review allowed),
+then applies exactly that plan and deploys those matching builds. It reads outputs
+privately, migrates the database, invalidates CloudFront and runs both smoke tests
+and infrastructure verification. Local previews cannot authorize that plan.
 
 Database-related outputs available to deployment and migration steps:
 
@@ -99,7 +110,9 @@ Database-related outputs available to deployment and migration steps:
 - `database_resource_arn`: Aurora cluster ARN for RDS Data API calls
 - `database_secret_arn`: Secrets Manager credential secret ARN, marked sensitive
 
-Because the deploy role is itself managed by Terraform, permission changes to that role still require a local production apply before GitHub Actions can use the new permissions.
+Do not reuse the deploy role for planning or bypass approval to bootstrap missing
+permissions. Any initial credential/IAM provisioning or exceptional recovery must
+be separately authorized and coordinated; routine production changes use Actions.
 
 ## DB-backed production smoke test
 
@@ -128,8 +141,9 @@ Before the first deploy using this check:
 1. Ensure the Terraform Cloudflare API token has the service-token permission
    above. This is distinct from the smoke token and must not be used as a smoke
    request credential.
-2. Package the Lambda artifact and review a local production Terraform plan as
-   described above. Apply the reviewed infrastructure changes with authorization.
+2. Provision the initial service identity as a separately authorized bootstrap
+   prerequisite. For existing environments, use the authoritative saved-plan
+   approval flow; a local preview is not deployment authorization.
 3. Copy the created credentials directly into GitHub's production environment
    secrets, without displaying them or saving them in the repository:
 
@@ -148,15 +162,16 @@ Terraform state now contains the service-token secret. Sensitive outputs hide it
 in normal terminal output but do not encrypt or remove it from state or
 `terraform output -json`. Protect remote state, plan files, and local output files;
 do not upload them as workflow artifacts. The workflow reads outputs through a
-private temporary file and removes it when the step exits.
+private file and removes it in the job's always-run cleanup.
 
 Rotate before the token's one-year expiry. Replace the dedicated token using a
 reviewed Terraform plan, copy both replacement outputs into GitHub again, and
 redeploy so the API's allowed Client ID matches the new token. Do not rotate by
 changing only GitHub secrets or disabling JWT validation.
 
-To redeploy or roll back application code, rerun `.github/workflows/deploy.yml` on the desired commit. The workflow rebuilds the API Lambda zip from that commit, applies Terraform with that artifact, rebuilds the web app with the production API URL, uploads web assets, invalidates CloudFront, and runs both production smoke tests.
-
-The current workflow applies Terraform automatically; it does not yet implement
-the authoritative saved-plan/human-approval boundary proposed in issue #14.
-Deterministic read-only monitoring and evidence collection are tracked in #28.
+To redeploy, dispatch a new run on `main` or rerun planning, then approve its plan. To
+roll back, revert through a new main commit and the same approval flow. Do not
+rerun a previous apply job, deploy arbitrary old refs, or rebuild after approval.
+Expired/stale/mismatched plans require a new run and human review; partial
+deployment is not automatically rolled back. See the runbook for exact-run
+verification reports and safe recovery. Read-only monitoring remains #28.

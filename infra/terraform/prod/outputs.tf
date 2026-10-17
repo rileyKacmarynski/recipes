@@ -54,6 +54,11 @@ output "github_actions_deploy_role_arn" {
   value       = aws_iam_role.github_actions_deploy.arn
 }
 
+output "github_actions_plan_role_arn" {
+  description = "Read-only GitHub Actions authoritative planning role."
+  value       = aws_iam_role.github_actions_plan.arn
+}
+
 output "database_driver" {
   description = "Production database driver for API and migration tooling."
   value       = module.app_environment.database_driver

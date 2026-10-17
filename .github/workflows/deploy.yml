@@ -8,25 +8,33 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  actions: read
 
 concurrency:
   group: production-deploy
   cancel-in-progress: false
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+  AWS_REGION: us-east-1
+  AWS_EXPECTED_ACCOUNT_ID: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
   TF_BACKEND_BUCKET: ${{ secrets.TERRAFORM_STATE_BUCKET }}
   TF_DIR: infra/terraform/prod
+  TF_WORKSPACE: default
+  TF_IN_AUTOMATION: 'true'
+  TERRAFORM_VERSION: 1.15.8
 
 jobs:
   checks:
     name: Non-E2E Checks
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -45,6 +53,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Check deployment command formatting
+        run: pnpm exec oxfmt --check scripts/*.ts scripts/*.mjs scripts/tsconfig.json .github/workflows/deploy.yml
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -57,23 +68,115 @@ jobs:
       - name: Build
         run: pnpm build
 
-  deploy:
-    name: Deploy Infrastructure And App Artifacts
+  plan:
+    name: Authoritative Saved Plan (No Production Mutation)
     runs-on: ubuntu-latest
     needs: checks
-    environment: production
+    environment: production-plan
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      handoff_sha256: ${{ steps.plan.outputs.handoff_sha256 }}
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PLAN_API_TOKEN }}
       TF_VAR_access_allowed_email: ${{ secrets.ACCESS_ALLOWED_EMAIL }}
       TF_VAR_cloudflare_account_id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       TF_VAR_cloudflare_access_team_domain: ${{ secrets.CLOUDFLARE_ACCESS_TEAM_DOMAIN }}
       TF_VAR_cloudflare_zone_id: ${{ secrets.CLOUDFLARE_ZONE_ID }}
       TF_VAR_terraform_state_bucket: ${{ secrets.TERRAFORM_STATE_BUCKET }}
       TF_VAR_github_oidc_subject: ${{ secrets.gh_oidc_subject }}
+      DEPLOY_PLAN_PUBLIC_KEY: ${{ vars.DEPLOY_PLAN_PUBLIC_KEY }}
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify GitHub human approval prerequisites
+        run: node scripts/production-deployment.ts approval
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+      - name: Build API artifact for the plan
+        run: pnpm --filter @recipes/api package:lambda
+      - name: Configure read-only AWS planning credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_PLAN_ROLE_ARN }}
+          allowed-account-ids: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+          role-session-name: recipes-prod-plan
+      - name: Initialize and confirm backend, provider account and workspace
+        run: node scripts/production-deployment.ts init
+      - name: Plan, build matching web artifact and encrypt handoff
+        id: plan
+        run: node scripts/production-deployment.ts plan
+      - name: Retain value-redacted plan review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .local/deploy/policy.json
+            .local/deploy/policy.md
+            .local/deploy/manifest.json
+            .local/deploy/prerequisite-failure.json
+          include-hidden-files: true
+          retention-days: 14
+      - name: Show value-redacted policy findings even when blocked
+        if: always()
+        run: |
+          if [ -f .local/deploy/policy.md ]; then cat .local/deploy/policy.md >>"$GITHUB_STEP_SUMMARY"; fi
+      - name: Transfer encrypted plan and matching builds
+        uses: actions/upload-artifact@v4
+        with:
+          name: encrypted-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .local/deploy/handoff.encrypted.json
+          include-hidden-files: true
+          retention-days: 1
+          if-no-files-found: error
+      - name: Remove private planning material
+        if: always()
+        run: rm -f .local/deploy/*.private.* .local/deploy/plan.tfplan
+
+  deploy:
+    name: Deploy Infrastructure And App Artifacts
+    runs-on: ubuntu-latest
+    needs: plan
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCESS_TEAM_DOMAIN: ${{ secrets.CLOUDFLARE_ACCESS_TEAM_DOMAIN }}
+      CF_ACCESS_SMOKE_CLIENT_ID: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_ID }}
+      CF_ACCESS_SMOKE_CLIENT_SECRET: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_SECRET }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -89,6 +192,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
         with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
           terraform_wrapper: false
 
       - name: Install dependencies
@@ -99,10 +203,24 @@ jobs:
         with:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          allowed-account-ids: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
           role-session-name: recipes-prod-deploy
 
-      - name: Build API Lambda artifact
-        run: pnpm --filter @recipes/api package:lambda
+      - name: Download this run's encrypted plan and builds
+        uses: actions/download-artifact@v4
+        with:
+          name: encrypted-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .local/deploy
+
+      - name: Initialize approved backend
+        run: node scripts/production-deployment.ts init
+
+      - name: Verify and decrypt exact reviewed plan and builds
+        id: handoff
+        env:
+          DEPLOY_PLAN_PRIVATE_KEY: ${{ secrets.DEPLOY_PLAN_PRIVATE_KEY }}
+          EXPECTED_HANDOFF_SHA256: ${{ needs.plan.outputs.handoff_sha256 }}
+        run: node scripts/production-deployment.ts open
 
       - name: Check production smoke credentials
         env:
@@ -123,70 +241,31 @@ jobs:
           fi
 
           printf 'LAMBDA_ZIP_PATH=%s\n' "$lambda_zip" >>"$GITHUB_ENV"
-          printf 'TF_VAR_api_lambda_zip_path=%s\n' "$lambda_zip" >>"$GITHUB_ENV"
-          printf 'TF_VAR_api_lambda_source_code_hash=%s\n' "$(openssl dgst -sha256 -binary "$lambda_zip" | openssl base64 -A)" >>"$GITHUB_ENV"
 
-      - name: Apply production Terraform infrastructure
+      - name: Apply exact approved saved plan (never replan)
+        id: apply
         run: |
-          if [ -z "$TF_BACKEND_BUCKET" ]; then
-            printf 'Missing GitHub secret: TERRAFORM_STATE_BUCKET\n' >&2
-            exit 1
-          fi
-
-          for name in CLOUDFLARE_API_TOKEN TF_VAR_access_allowed_email TF_VAR_cloudflare_account_id TF_VAR_cloudflare_access_team_domain TF_VAR_cloudflare_zone_id TF_VAR_terraform_state_bucket TF_VAR_api_lambda_zip_path TF_VAR_api_lambda_source_code_hash; do
-            if [ -z "${!name}" ]; then
-              printf 'Missing GitHub production secret for %s\n' "$name" >&2
-              exit 1
-            fi
+          umask 077
+          for name in $(compgen -e); do
+            case "$name" in TF_CLI_ARGS*|TF_LOG*) unset "$name" ;; esac
           done
-
-          terraform -chdir="$TF_DIR" init \
-            -backend-config="bucket=$TF_BACKEND_BUCKET" \
-            -input=false
-
-          terraform -chdir="$TF_DIR" apply \
-            -auto-approve \
-            -input=false
+          node scripts/production-deployment.ts confirm-apply
+          terraform -chdir="$TF_DIR" apply -input=false -lock-timeout=60s \
+            "$GITHUB_WORKSPACE/.local/deploy/plan.tfplan" >.local/deploy/apply.private.log 2>&1
 
       - name: Read production Terraform outputs
         id: terraform_outputs
         run: |
-          outputs_file="$(mktemp)"
-          trap 'rm -f "$outputs_file"' EXIT
-          terraform -chdir="$TF_DIR" output -json >"$outputs_file"
-
-          web_bucket="$(jq -r '.web_bucket.value' "$outputs_file")"
-          distribution_id="$(jq -r '.cloudfront_distribution_id.value' "$outputs_file")"
-          lambda_function="$(jq -r '.api_lambda_function_name.value' "$outputs_file")"
-          web_url="$(jq -r '.web_url.value' "$outputs_file")"
-          api_url="$(jq -r '.api_url.value' "$outputs_file")"
-          database_driver="$(jq -r '.database_driver.value' "$outputs_file")"
-          database_name="$(jq -r '.database_name.value' "$outputs_file")"
-          database_resource_arn="$(jq -r '.database_resource_arn.value' "$outputs_file")"
-          database_secret_arn="$(jq -r '.database_secret_arn.value' "$outputs_file")"
-
-          for value in "$web_bucket" "$distribution_id" "$lambda_function" "$web_url" "$api_url" "$database_driver" "$database_name" "$database_resource_arn" "$database_secret_arn"; do
-            if [ -z "$value" ] || [ "$value" = "null" ]; then
-              printf 'A required Terraform output is missing.\n' >&2
-              exit 1
-            fi
-          done
-
-          printf 'web_bucket=%s\n' "$web_bucket" >>"$GITHUB_OUTPUT"
-          printf 'distribution_id=%s\n' "$distribution_id" >>"$GITHUB_OUTPUT"
-          printf 'lambda_function=%s\n' "$lambda_function" >>"$GITHUB_OUTPUT"
-          printf 'web_url=%s\n' "$web_url" >>"$GITHUB_OUTPUT"
-          printf 'api_url=%s\n' "$api_url" >>"$GITHUB_OUTPUT"
-          printf '::add-mask::%s\n' "$database_secret_arn"
-          printf 'DATABASE_DRIVER=%s\n' "$database_driver" >>"$GITHUB_ENV"
-          printf 'DATABASE_NAME=%s\n' "$database_name" >>"$GITHUB_ENV"
-          printf 'DATABASE_RESOURCE_ARN=%s\n' "$database_resource_arn" >>"$GITHUB_ENV"
-          printf 'DATABASE_SECRET_ARN=%s\n' "$database_secret_arn" >>"$GITHUB_ENV"
+          umask 077
+          terraform -chdir="$TF_DIR" output -json >.local/deploy/outputs.private.json 2>.local/deploy/outputs.private.log
+          node scripts/verify-production.ts outputs
 
       - name: Run database migrations
+        id: migrations
         run: pnpm db:migrate
 
       - name: Deploy API Lambda code
+        id: lambda
         env:
           API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
         run: |
@@ -198,58 +277,8 @@ jobs:
           aws lambda wait function-updated \
             --function-name "$API_LAMBDA_FUNCTION"
 
-      - name: Verify API Lambda Access configuration
-        env:
-          API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
-        run: |
-          config_file="$(mktemp)"
-          aws lambda get-function-configuration \
-            --function-name "$API_LAMBDA_FUNCTION" \
-            >"$config_file"
-
-          node --input-type=module -e '
-            import { readFileSync } from "node:fs";
-
-            const config = JSON.parse(readFileSync(process.argv[1], "utf8"));
-            const vars = config.Environment?.Variables ?? {};
-            const required = [
-              "CLOUDFLARE_ACCESS_AUD",
-              "CLOUDFLARE_ACCESS_TEAM_DOMAIN",
-              "CLOUDFLARE_SMOKE_CLIENT_ID",
-              "DATABASE_DRIVER",
-              "DATABASE_NAME",
-              "DATABASE_RESOURCE_ARN",
-              "DATABASE_SECRET_ARN",
-              "WEB_ORIGIN",
-            ];
-            const missing = required.filter((key) => !vars[key]);
-
-            console.log(JSON.stringify({
-              event: "api_lambda_access_env_check",
-              functionName: config.FunctionName,
-              runtime: config.Runtime,
-              lastModified: config.LastModified,
-              hasAccessAud: Boolean(vars.CLOUDFLARE_ACCESS_AUD),
-              hasAccessTeamDomain: Boolean(vars.CLOUDFLARE_ACCESS_TEAM_DOMAIN),
-              hasDatabaseDriver: vars.DATABASE_DRIVER === "data-api",
-              hasDatabaseName: Boolean(vars.DATABASE_NAME),
-              hasDatabaseResourceArn: Boolean(vars.DATABASE_RESOURCE_ARN),
-              hasDatabaseSecretArn: Boolean(vars.DATABASE_SECRET_ARN),
-              hasWebOrigin: Boolean(vars.WEB_ORIGIN),
-            }));
-
-            if (missing.length > 0) {
-              console.error(`Missing API Lambda Access env vars: ${missing.join(", ")}`);
-              process.exit(1);
-            }
-          ' "$config_file"
-
-      - name: Build web artifact
-        env:
-          VITE_API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
-        run: pnpm --filter @recipes/web build
-
       - name: Deploy web artifact to S3
+        id: web
         env:
           WEB_BUCKET: ${{ steps.terraform_outputs.outputs.web_bucket }}
         run: |
@@ -262,6 +291,7 @@ jobs:
             --content-type 'text/html'
 
       - name: Invalidate CloudFront
+        id: cloudfront
         env:
           DISTRIBUTION_ID: ${{ steps.terraform_outputs.outputs.distribution_id }}
         run: |
@@ -275,45 +305,31 @@ jobs:
             --id "$invalidation_id"
 
       - name: Smoke test API Lambda
+        id: health
+        if: ${{ !cancelled() && steps.cloudfront.outcome == 'success' }}
         env:
           API_LAMBDA_FUNCTION: ${{ steps.terraform_outputs.outputs.lambda_function }}
+          API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
         run: |
+          umask 077
           event_file="$(mktemp)"
           response_file="$(mktemp)"
+          trap 'rm -f "$event_file" "$response_file"' EXIT
 
-          cat >"$event_file" <<'JSON'
-          {
-            "version": "2.0",
-            "routeKey": "$default",
-            "rawPath": "/health",
-            "rawQueryString": "",
-            "headers": {
-              "host": "recipes-api.rkac.dev"
-            },
-            "requestContext": {
-              "accountId": "000000000000",
-              "apiId": "smoke",
-              "authentication": null,
-              "authorizer": {},
-              "domainName": "recipes-api.rkac.dev",
-              "domainPrefix": "recipes-api",
-              "http": {
-                "method": "GET",
-                "path": "/health",
-                "protocol": "HTTP/1.1",
-                "sourceIp": "127.0.0.1",
-                "userAgent": "github-actions-smoke"
-              },
-              "requestId": "github-actions-smoke",
-              "routeKey": "$default",
-              "stage": "$default",
-              "time": "01/Jan/2026:00:00:00 +0000",
-              "timeEpoch": 1767225600000
-            },
-            "body": null,
-            "isBase64Encoded": false
-          }
-          JSON
+          node --input-type=module -e '
+            import { writeFileSync } from "node:fs";
+            const host = new URL(process.env.API_URL).hostname;
+            writeFileSync(process.argv[1], JSON.stringify({
+              version: "2.0", routeKey: "$default", rawPath: "/health", rawQueryString: "",
+              headers: { host }, body: null, isBase64Encoded: false,
+              requestContext: {
+                accountId: "000000000000", apiId: "smoke", authentication: null, authorizer: {},
+                domainName: host, domainPrefix: "smoke", requestId: "github-actions-smoke",
+                routeKey: "$default", stage: "$default", time: new Date().toUTCString(), timeEpoch: Date.now(),
+                http: { method: "GET", path: "/health", protocol: "HTTP/1.1", sourceIp: "127.0.0.1", userAgent: "github-actions-smoke" }
+              }
+            }));
+          ' "$event_file"
 
           aws lambda invoke \
             --function-name "$API_LAMBDA_FUNCTION" \
@@ -324,11 +340,14 @@ jobs:
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
 
-            const response = JSON.parse(readFileSync(process.argv[1], "utf8"));
-            const body = JSON.parse(response.body ?? "{}");
+            let response, body;
+            try {
+              response = JSON.parse(readFileSync(process.argv[1], "utf8"));
+              body = JSON.parse(response.body ?? "{}");
+            } catch { console.error("Malformed Lambda /health response; values omitted."); process.exit(1); }
 
             if (response.statusCode !== 200 || body.ok !== true) {
-              console.error(`Lambda smoke test failed: ${JSON.stringify(response)}`);
+              console.error("Lambda /health smoke test failed; response omitted.");
               process.exit(1);
             }
 
@@ -336,8 +355,99 @@ jobs:
            ' "$response_file"
 
       - name: Smoke test DB-backed API through Cloudflare and Lambda
+        id: recipes
+        if: ${{ !cancelled() && steps.cloudfront.outcome == 'success' }}
         env:
           API_URL: ${{ steps.terraform_outputs.outputs.api_url }}
           CF_ACCESS_SMOKE_CLIENT_ID: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_ID }}
           CF_ACCESS_SMOKE_CLIENT_SECRET: ${{ secrets.CF_ACCESS_SMOKE_CLIENT_SECRET }}
         run: pnpm --filter @recipes/api test:smoke
+
+      - name: Verify production infrastructure and edge behavior
+        id: infrastructure
+        if: ${{ !cancelled() && steps.cloudfront.outcome == 'success' }}
+        run: node scripts/verify-production.ts verify
+
+      - name: Durable deployment verification contract
+        if: always()
+        uses: actions/github-script@v8
+        env:
+          STEP_OUTCOMES: ${{ toJSON(steps) }}
+          HANDOFF_SHA256: ${{ needs.plan.outputs.handoff_sha256 }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            fs.mkdirSync('.local/deploy', { recursive: true, mode: 0o700 });
+            const steps = JSON.parse(process.env.STEP_OUTCOMES);
+            const required = ['handoff', 'apply', 'terraform_outputs', 'migrations', 'lambda', 'web', 'cloudfront', 'health', 'recipes', 'infrastructure'];
+            const checks = required.map(name => ({ name, status: steps[name]?.outcome ?? 'skipped' }));
+            const manifest = fs.existsSync('.local/deploy/manifest.json') ? JSON.parse(fs.readFileSync('.local/deploy/manifest.json', 'utf8')) : null;
+            const report = {
+              schemaVersion: 1,
+              repository: context.repo.owner + '/' + context.repo.repo,
+              runId: String(context.runId), runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+              commit: context.sha, handoffSha256: process.env.HANDOFF_SHA256,
+              planSha256: manifest?.files?.['.local/deploy/plan.tfplan'] ?? null,
+              success: checks.every(check => check.status === 'success'), checks,
+              evidence: ['Actions job logs (value-redacted)', 'plan-review-' + context.runId + '-' + process.env.GITHUB_RUN_ATTEMPT, 'deployment-verification-' + context.runId + '-' + process.env.GITHUB_RUN_ATTEMPT],
+            };
+            fs.writeFileSync('.local/deploy/verification.json', JSON.stringify(report, null, 2) + '\n', { mode: 0o600 });
+            const markdown = '# Production verification: ' + (report.success ? 'PASSED' : 'FAILED / INCOMPLETE') + '\n\nCommit: ' + context.sha + '\nRun: ' + context.runId + '\n\n' + checks.map(check => '- ' + check.name + ': ' + check.status).join('\n') + '\n';
+            fs.writeFileSync('.local/deploy/verification.md', markdown, { mode: 0o600 });
+            await core.summary.addRaw(markdown).write();
+            if (!report.success) core.setFailed('Required deployment checks failed or were skipped');
+
+      - name: Retain safe deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .local/deploy/verification.json
+            .local/deploy/verification.md
+            .local/deploy/infrastructure-verification.json
+            .local/deploy/prerequisite-failure.json
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Remove private deployment material
+        if: always()
+        run: rm -f .local/deploy/*.private.* .local/deploy/plan.tfplan
+
+  result:
+    name: Durable Run Result
+    if: always()
+    needs: [checks, plan, deploy]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record every stage including failed or skipped deployment
+        uses: actions/github-script@v8
+        env:
+          STAGE_RESULTS: ${{ toJSON(needs) }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const stages = JSON.parse(process.env.STAGE_RESULTS);
+            const checks = ['checks', 'plan', 'deploy'].map(name => ({ name, status: stages[name].result }));
+            const report = {
+              schemaVersion: 1, repository: context.repo.owner + '/' + context.repo.repo,
+              runId: String(context.runId), runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+              commit: context.sha, success: checks.every(check => check.status === 'success'), checks,
+              evidence: ['plan-review-' + context.runId + '-' + process.env.GITHUB_RUN_ATTEMPT, 'deployment-verification-' + context.runId + '-' + process.env.GITHUB_RUN_ATTEMPT],
+            };
+            fs.writeFileSync('run-result.json', JSON.stringify(report, null, 2) + '\n');
+            const summary = '# Deployment run: ' + (report.success ? 'PASSED' : 'FAILED / INCOMPLETE') + '\n\nCommit: ' + context.sha + '\nRun: ' + context.runId + '\n\n' + checks.map(check => '- ' + check.name + ': ' + check.status).join('\n') + '\n';
+            fs.writeFileSync('run-result.md', summary);
+            await core.summary.addRaw(summary).write();
+            if (!report.success) core.setFailed('Deployment was not fully verified');
+      - name: Retain durable run result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            run-result.json
+            run-result.md
+          retention-days: 14
+          if-no-files-found: error

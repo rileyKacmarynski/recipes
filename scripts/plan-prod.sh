@@ -242,7 +242,7 @@ done
 mkdir -p "$ROOT_DIR/.local/infra-plan"
 RUN_DIR="$(mktemp -d "$ROOT_DIR/.local/infra-plan/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")"
 export RUN_DIR
-trap 'rm -f "$RUN_DIR/artifact.tfvars.json" "$RUN_DIR/plan.private.json" "$RUN_DIR/aws-identity.private.json"; unset CLOUDFLARE_API_TOKEN' EXIT
+trap 'rm -f "$RUN_DIR/artifact.tfvars.json" "$RUN_DIR/plan.private.json" "$RUN_DIR/aws-identity.private.json" "$RUN_DIR/provider-identity.private.json"; unset CLOUDFLARE_API_TOKEN' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 say 'This script only plans. It does not apply, push, deploy, or change GitHub secrets.'
@@ -287,12 +287,29 @@ ACCOUNT="$(node "$HELPER" account "$RUN_DIR/aws-identity.private.json")"
 say "Backend bucket: $TF_BACKEND_BUCKET"
 say "Backend/preflight AWS account: $ACCOUNT"
 say "Backend profile: ${TF_BACKEND_PROFILE:-default credential chain}"
-warn 'Provider credentials/workspace also depend on Terraform configuration. This is not the full policy gate planned in #14.'
+warn 'Backend authentication is separate from provider authentication; verify the aws_profile/region in your Terraform inputs.'
 if [[ -n "${AWS_EXPECTED_ACCOUNT_ID:-}" && "$ACCOUNT" != "$AWS_EXPECTED_ACCOUNT_ID" ]]; then
   say 'AWS account does not match AWS_EXPECTED_ACCOUNT_ID. Stopping.'
   exit 1
 fi
 confirm 'Is this the intended production account and backend for a read-only plan?' || exit 1
+say 'Provider authentication is checked independently and pinned for this preview.'
+say 'The selected provider profile/region override tfvars for this run only.'
+if [[ -z "${TF_PROVIDER_PROFILE+x}" ]]; then
+  ask TF_PROVIDER_PROFILE 'AWS profile for the provider (Enter uses the default credential chain):'
+fi
+AWS_EXPECTED_REGION="${AWS_EXPECTED_REGION:-us-east-1}"
+PROVIDER_ARGS=()
+[[ -z "$TF_PROVIDER_PROFILE" ]] || PROVIDER_ARGS+=(--profile "$TF_PROVIDER_PROFILE")
+if ! aws sts get-caller-identity ${PROVIDER_ARGS[@]+"${PROVIDER_ARGS[@]}"} --region "$AWS_EXPECTED_REGION" --output json >"$RUN_DIR/provider-identity.private.json" 2>"$RUN_DIR/provider-identity.log"; then
+  say 'Provider AWS authentication failed. Authenticate the selected profile, then retry.'
+  exit 1
+fi
+PROVIDER_ACCOUNT="$(node "$HELPER" account "$RUN_DIR/provider-identity.private.json")"
+say "Provider account: $PROVIDER_ACCOUNT; region: $AWS_EXPECTED_REGION; profile: ${TF_PROVIDER_PROFILE:-default credential chain}"
+confirm 'Are these the intended provider account, region and credentials for a read-only preview?' || exit 1
+export TF_PROVIDER_PROFILE AWS_EXPECTED_REGION
+node "$HELPER" provider-inputs "$RUN_DIR/artifact.tfvars.json"
 if [[ "$RECONFIGURE_BACKEND" == 1 ]]; then
   CACHED_BUCKET="$(node "$HELPER" backend-value "$BACKEND_STATE" bucket)"
   if [[ -n "$CACHED_BUCKET" && "$CACHED_BUCKET" != "$TF_BACKEND_BUCKET" ]]; then
@@ -308,6 +325,10 @@ if [[ "$RECONFIGURE_BACKEND" == 1 ]]; then
 fi
 
 stage 'Cloudflare credentials and Terraform initialization'
+if ! terraform -chdir="$TF_DIR" fmt -check -recursive ../ >"$RUN_DIR/fmt.log" 2>&1; then
+  say "Terraform formatting check failed. Inspect $RUN_DIR/fmt.log yourself."
+  exit 1
+fi
 if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]]; then
   say 'Use your existing Cloudflare management API token, not the smoke service token.'
   open_url 'https://dash.cloudflare.com/profile/api-tokens'
@@ -330,6 +351,10 @@ if ! terraform -chdir="$TF_DIR" validate -no-color >"$RUN_DIR/validate.log" 2>&1
   exit 1
 fi
 say 'Terraform initialization and validation succeeded.'
+if [[ "$(node "$HELPER" backend-value "$BACKEND_STATE" bucket)" != "$TF_BACKEND_BUCKET" ]]; then
+  say 'Initialized backend does not match the selected bucket. Stopping.'
+  exit 1
+fi
 
 stage 'Plan and sanitized review report'
 if ! terraform -chdir="$TF_DIR" workspace show >"$RUN_DIR/workspace.log" 2>&1; then
@@ -337,6 +362,8 @@ if ! terraform -chdir="$TF_DIR" workspace show >"$RUN_DIR/workspace.log" 2>&1; t
   exit 1
 fi
 say "Terraform workspace: $(cat "$RUN_DIR/workspace.log")"
+say "Backend key: $(node "$HELPER" backend-value "$BACKEND_STATE" key)"
+say "Backend region: $(node "$HELPER" backend-value "$BACKEND_STATE" region)"
 confirm 'Is this the intended production workspace? Continue with planning only?' || exit 1
 say 'Terraform will prompt for required inputs missing from environment/tfvars.'
 say 'Standard local terraform.tfvars and *.auto.tfvars are loaded automatically.'
@@ -359,6 +386,8 @@ unset CLOUDFLARE_API_TOKEN
 say "Agent-readable report: $RUN_DIR/report.md"
 say "Machine-readable report: $RUN_DIR/report.json"
 say "Private saved plan: $RUN_DIR/plan.tfplan"
+say 'Next: pnpm infra:inspect (redacted summary of this preview).'
+say 'Full private terminal review: pnpm infra:review.'
 warn 'A generated report is not approval or proof of safety. Nothing was applied.'
 }
 
