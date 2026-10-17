@@ -91,6 +91,70 @@ pnpm test:e2e -- recipes.spec.ts
 pnpm test:e2e -- -g "shows recipes page"
 ```
 
+### Local built-artifact acceptance (UAT)
+
+Requires Node 24+, pnpm dependencies, Docker Desktop/OrbStack (`docker info`), and
+Playwright Chromium (`pnpm --filter @recipes/uat exec playwright install chromium`).
+Run from the repository root:
+
+```sh
+# Producer: choose a NEW directory for each handoff (existing paths are refused).
+pnpm build:uat .local/uat/artifacts/my-build
+
+# Verifier: consumes that exact handoff; does not build or repair anything.
+pnpm uat .local/uat/artifacts/my-build
+# Optional NEW evidence directory:
+pnpm uat .local/uat/artifacts/my-build .local/uat/runs/my-verification
+```
+
+The handoff is portable between compatible local Node environments: `web/`,
+`api.cjs`, `migrate.cjs`, `migrations/`, and `manifest.json`. Node executables bundle
+their dependencies; no application source execution or watch/dev servers are used.
+The manifest hashes every supplied file; reports identify the complete file set by
+SHA-256. Checksums detect accidental changes, not the authenticity of untrusted code:
+only run artifacts you trust. With no output argument, `build:uat` writes to the new
+`.local/uat/artifacts` directory.
+
+Each verification provisions fresh disposable Postgres, applies the supplied real
+migrations, starts the built API and a static frontend server on ephemeral ports,
+and uses the existing local identity. Browser scenarios cover empty state,
+create/list, persistence after reload, and empty/whitespace-title rejection. They
+use real HTTP requests; there are no API interceptions or internal assertions.
+`DATABASE_URL` and cloud/auth settings from your shell are not passed to the app.
+Repeated runs do not reuse data, containers, or existing servers.
+
+Evidence defaults to `.local/uat/runs/<timestamp>-<pid>/` and survives teardown:
+
+- `summary.txt` and `report.json`: artifact manifest/hash, `passed`, `setup-error`,
+  or `expectation-failed`, scenario results, runtime resource identifiers, cleanup,
+  timestamps, and evidence location.
+- `api.log`, `frontend.log`, `migrations.log`, `postgres.log`, `playwright.log`.
+- `playwright.json`, `html/` browser report, and `browser/` failure screenshots/traces.
+  Open the report with `pnpm --filter @recipes/uat exec playwright show-report <absolute-path-to-html>`.
+
+Every scenario must pass for exit zero. Setup errors and expectation failures exit
+one. SIGINT/SIGTERM trigger owned process-group/container cleanup and a setup-error
+report; as with any process, SIGKILL or a host crash cannot run teardown (Testcontainers
+also provides its resource reaper). Evidence paths must be new and separate from
+the artifact directory. Startup failures may have no browser report, but retain the
+summary and logs produced before failure. Preserve both the handoff and evidence
+when reporting a failure; verification must not edit code, scenarios, or expectations
+to make it pass.
+
+Runner regression tests do not require Docker by default. To validate repeated
+clean runs, broken supplied migration SQL, API startup failure, assertion evidence,
+interruption, and resource cleanup against an existing handoff:
+
+```sh
+UAT_TEST_ARTIFACTS="$PWD/.local/uat/artifacts/my-build" pnpm --filter @recipes/uat test
+```
+
+These checks make isolated copies of the handoff for failure fixtures and retain
+their evidence under `.local/uat/checks/`. They never change the supplied handoff or
+the acceptance contract. See [ADR 0007](doc/adr/0007-separate-local-artifact-production-from-black-box-acceptance.md).
+Production credentials, deployment/CI gates, and agent orchestration are outside
+this local workflow.
+
 ## Development Notes
 
 - `pnpm dev` starts the frontend and backend concurrently.
@@ -134,8 +198,8 @@ Review infrastructure changes locally or in the PR before pushing/merging to
 `main`. Actions then builds, saves/inspects a fresh Terraform plan and applies that
 exact file automatically in the same job—no manual Actions approval, plan transfer
 or extra encryption keys. See the [production workflow runbook](doc/production-infra-workflow.md).
-The revised workflow still needs a live validation run. Pipeline monitoring
-(#28) and built-artifact black-box UAT (#24) remain separate work.
+The revised workflow still needs a live validation run. Pipeline monitoring (#28)
+remains separate from local built-artifact black-box UAT (#24).
 
 ## Current Scope
 

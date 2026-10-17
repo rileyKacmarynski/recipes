@@ -13,6 +13,8 @@
     "db:up": "docker compose up -d postgres",
     "dev": "pnpm --parallel --filter @recipes/web --filter @recipes/api dev",
     "build": "pnpm -r build",
+    "build:uat": "node packages/uat/build.mjs",
+    "uat": "node packages/uat/run.mjs",
     "test": "pnpm test:infra && pnpm -r test",
     "test:infra": "node --test scripts/*.test.mjs scripts/*.test.ts",
     "infra:preview": "bash scripts/plan-prod.sh",

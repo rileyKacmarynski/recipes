@@ -1,0 +1,15 @@
+{
+  "name": "@recipes/uat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "test:unit": "node --test *.test.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@testcontainers/postgresql": "12.2.1",
+    "esbuild": "^0.28.2",
+    "zod": "4.4.3"
+  }
+}

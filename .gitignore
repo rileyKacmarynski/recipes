@@ -32,3 +32,4 @@ infra/terraform/prod/prod-outputs.env
 infra/terraform/prod/prod-report.txt
 .local/infra-plan/
 .local/deploy/
+.local/uat/

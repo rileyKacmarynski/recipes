@@ -15,9 +15,12 @@ const app = createApp({
   recipes: createRecipes(db),
 })
 
-serve({
-  fetch: app.fetch,
-  port,
-})
-
-console.log(`API listening on http://localhost:${port}`)
+serve(
+  {
+    fetch: app.fetch,
+    port,
+  },
+  (info) => {
+    console.log(`API listening on http://localhost:${info.port}`)
+  },
+)
