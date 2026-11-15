@@ -40,3 +40,37 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  database:
+    name: Database Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RUN_DB_TESTS: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check container runtime
+        run: docker info
+
+      - name: Core tests with disposable Postgres
+        run: pnpm --filter @recipes/core test
+
+      - name: API tests with disposable Postgres
+        run: pnpm --filter @recipes/api test

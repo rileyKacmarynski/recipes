@@ -43,6 +43,17 @@ pnpm format
 pnpm typecheck
 ```
 
+Run the standard local checks together with `pnpm verify`. It runs format check,
+lint, typecheck, unit tests (`pnpm test:unit`), and build in that order, streaming each command's output.
+It stops at the first failure, names the failed check, and exits nonzero. It does
+not install dependencies or automatically fix files; run `pnpm install` first.
+Formatting checks use the existing repo-wide scope, including agent Markdown and
+generated files.
+
+Verification needs no Swamp, cloud credentials, or Docker by default. Database-backed
+tests remain opt-in with `RUN_DB_TESTS=1`; browser E2E (`pnpm test:e2e`) and
+built-artifact acceptance (`pnpm build:uat` then `pnpm uat`) are separate checks.
+
 Local database helpers:
 
 ```sh
@@ -86,6 +97,12 @@ tests; connections and containers are closed after the suite, including migratio
 failures. The first run needs network access to pull the container images and can
 take longer. If Docker is unavailable, explicitly enabled DB tests fail rather
 than silently falling back to the development database.
+
+Pull requests run these core and API tests with `RUN_DB_TESTS=1` in a separate
+`Database Integration Tests` CI job. It uses the GitHub runner's Docker runtime
+and disposable Postgres containers with the checked-in migrations, not production
+or development databases. No cloud credentials are required. The existing fast
+checks remain a separate CI job; local database tests remain opt-in.
 
 Playwright filters can be passed after `--`:
 
