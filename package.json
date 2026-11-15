@@ -12,6 +12,7 @@
     "db:down": "docker compose down",
     "db:up": "docker compose up -d postgres",
     "dev": "pnpm --parallel --filter @recipes/web --filter @recipes/api dev",
+    "verify": "node scripts/verify.mjs",
     "build": "pnpm -r build",
     "build:uat": "node packages/uat/build.mjs",
     "uat": "node packages/uat/run.mjs",
