@@ -21,8 +21,8 @@ One ordered instruction in a Recipe.
 _Avoid_: Direction, instruction, method
 
 **Section**:
-A named group of Ingredient Lines or Steps within a Recipe, such as "For the sauce".
-_Avoid_: Group, component, part
+A self-contained part of a Recipe with its own Ingredient Lines and Steps, such as the "Butter mustard pan sauce" in a salmon Recipe. A Recipe has at least one Section, and a Section's name can be empty when the Recipe has only one part.
+_Avoid_: Group, component, part, sub-recipe
 
 **Yield**:
 What a Recipe makes, as an amount and a thing, such as "4 servings" or "1 loaf".
@@ -49,16 +49,24 @@ _Avoid_: Metadata, lineage, audit
 ### Ingredients
 
 **Ingredient**:
-A canonical food item at the level you would pick off the shelf, such as "red onion" (distinct from "yellow onion"). Ingredients are shared by all Users; one first seen during Ingestion is added for everyone.
+A canonical food item named bare, such as "red onion" (distinct from "yellow onion") or "peas" (for "frozen peas"). Variety distinguishes Ingredients; Preparation never does. Ingredients are shared by all Users, and one first seen during Ingestion is added for everyone.
 _Avoid_: Item, food, product
 
 **Ingredient Line**:
-One Recipe's use of an Ingredient, as written in the Recipe, such as "1 ½ cups finely diced red onion". It keeps its original wording alongside its amount, unit, Ingredient, and Preparations.
+One line of a Section's ingredients as written, such as "1 (14 oz) can diced tomatoes", shown exactly in its original wording. Alongside the wording it may carry an amount, a Unit, a Package Size, and the one Ingredient it uses.
 _Avoid_: Recipe ingredient, line item
 
 **Preparation**:
-How an Ingredient is readied for one Ingredient Line, such as "diced", "shredded", or "quartered". It belongs to the line, never to the Ingredient.
-_Avoid_: Modifier, prep, cut
+Words in an Ingredient Line describing how or in what form an Ingredient is used, such as "diced", "shredded", "frozen", or "dried". It stays in the line's wording and never changes which Ingredient the line uses.
+_Avoid_: Modifier, prep, cut, state
+
+**Unit**:
+A measure from the system's fixed list that an Ingredient Line's amount is counted in, such as cup, tablespoon, gram, clove, can, pinch, or handful.
+_Avoid_: Measure, measurement
+
+**Package Size**:
+The size of the package an Ingredient Line's Unit refers to, such as the "14 oz" in "1 (14 oz) can".
+_Avoid_: Container size, can size
 
 **Grocery List**:
 A shopping list of Ingredients drawn from one or more Recipes.
