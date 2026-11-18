@@ -52,8 +52,12 @@ _Avoid_: Metadata, lineage, audit
 A canonical food item named bare, such as "red onion" (distinct from "yellow onion") or "peas" (for "frozen peas"). Variety distinguishes Ingredients; Preparation never does. Ingredients are shared by all Users, and one first seen during Ingestion is added for everyone.
 _Avoid_: Item, food, product
 
+**Alias**:
+Another name for the same Ingredient, such as "scallion" for "green onion". An Ingredient has one name and any number of Aliases.
+_Avoid_: Synonym, alternate name
+
 **Ingredient Line**:
-One line of a Section's ingredients as written, such as "1 (14 oz) can diced tomatoes", shown exactly in its original wording. Alongside the wording it may carry an amount, a Unit, a Package Size, and the one Ingredient it uses.
+One line of a Section's ingredients as written, such as "1 (14 oz) can diced tomatoes", shown exactly in its original wording. Alongside the wording it may carry an amount, a Unit, a Package Size, and the one Ingredient it uses. A line with no Ingredient is unmatched, because it is not food or names something too generic to buy, such as "chicken".
 _Avoid_: Recipe ingredient, line item
 
 **Preparation**:
